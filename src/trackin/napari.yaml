@@ -1,0 +1,50 @@
+name: trackin
+display_name: Trackin
+# use 'hidden' to remove plugin from napari hub search results
+visibility: public
+# see https://napari.org/stable/plugins/manifest.html for valid categories
+categories: ["Annotation", "Segmentation", "Acquisition"]
+contributions:
+  commands:
+    - id: trackin.write_multiple
+      python_name: trackin._writer:write_multiple
+      title: Save multi-layer data with Trackin
+    - id: trackin.write_single_image
+      python_name: trackin._writer:write_single_image
+      title: Save image data with Trackin
+    - id: trackin.make_sample_data
+      python_name: trackin._sample_data:make_sample_data
+      title: Load sample data from Trackin
+    - id: trackin.make_container_widget
+      python_name: trackin:ImageThreshold
+      title: Make threshold Container widget
+    - id: trackin.make_magic_widget
+      python_name: trackin:threshold_magic_widget
+      title: Make threshold magic widget
+    - id: trackin.make_function_widget
+      python_name: trackin:threshold_autogenerate_widget
+      title: Make threshold function widget
+    - id: trackin.make_qwidget
+      python_name: trackin:ExampleQWidget
+      title: Make example QWidget
+  writers:
+    - command: trackin.write_multiple
+      layer_types: ['image*','labels*']
+      filename_extensions: []
+    - command: trackin.write_single_image
+      layer_types: ['image']
+      filename_extensions: ['.npy']
+  sample_data:
+    - command: trackin.make_sample_data
+      display_name: Trackin
+      key: unique_id.1
+  widgets:
+    - command: trackin.make_container_widget
+      display_name: Container Threshold
+    - command: trackin.make_magic_widget
+      display_name: Magic Threshold
+    - command: trackin.make_function_widget
+      autogenerate: true
+      display_name: Autogenerate Threshold
+    - command: trackin.make_qwidget
+      display_name: Example QWidget
