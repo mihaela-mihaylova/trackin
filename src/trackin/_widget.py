@@ -120,6 +120,6 @@ def overlay_points(frame_data):
             points,
             size=20,
             face_color='transparent',  # Ensure transparency
-            edge_color='white',
+            border_color='white',
             name='Overlay Points'
         )
