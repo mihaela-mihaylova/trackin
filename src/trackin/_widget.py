@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
-from qtpy.QtWidgets import QFileDialog, QMessageBox
+from qtpy.QtWidgets import QFileDialog, QMessageBox,  QWidget, QVBoxLayout
 import napari
 import numpy as np
 
@@ -123,3 +123,32 @@ def overlay_points(frame_data):
             border_color='white',
             name='Overlay Points'
         )
+
+def trackin_main():
+    """Main function to show the plugin interface."""
+    # Create a QWidget to act as the container
+    container = QWidget()
+    layout = QVBoxLayout()  # Create a vertical layout
+    
+    # Add buttons to the layout
+    choose_folder_button = QPushButton("Choose Folder")
+    choose_folder_button.clicked.connect(choose_folder)
+
+    load_csv_button = QPushButton("Load CSV")
+    load_csv_button.clicked.connect(load_csv)
+
+    next_image_button = QPushButton("Next Image")
+    next_image_button.clicked.connect(next_image)
+
+    previous_image_button = QPushButton("Previous Image")
+    previous_image_button.clicked.connect(previous_image)
+
+    # Add buttons to the layout
+    layout.addWidget(choose_folder_button)
+    layout.addWidget(load_csv_button)
+    layout.addWidget(next_image_button)
+    layout.addWidget(previous_image_button)
+    
+    # Set layout and return the widget
+    container.setLayout(layout)
+    return container
