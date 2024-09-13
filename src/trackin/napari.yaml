@@ -2,13 +2,10 @@ name: trackin
 display_name: Trackin
 contributions:
   commands:
-    # Register a command for the main functionality
-    - id: trackin.show_main_widget
+    - id: trackin.trackin_main
       title: Trackin
-      python_name: trackin:show_main_widget_function
-
+      python_name: trackin._widget:trackin_main
   widgets:
-    # Register the widget to make it appear in the plugin menu
-    - command: trackin.show_main_widget  # Same as command.id above
+    - command: trackin.trackin_main
       display_name: Trackin
       autogenerate: true
