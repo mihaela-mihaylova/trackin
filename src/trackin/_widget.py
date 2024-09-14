@@ -57,6 +57,7 @@ def choose_folder():
             viewer.layers.clear()
             viewer.add_image(images[current_index], name=os.path.basename(image_files[current_index]))
             check_and_update_image()
+            update_slider_max()  # Update the slider range
 
 @magicgui(call_button="Load CSV")
 def load_csv():
@@ -81,6 +82,7 @@ def next_image():
     if images:
         current_index = (current_index + 1) % len(images)  # Wrap around to the first image
         update_image()
+        image_slider.image_index.value = current_index  # Sync slider value
 
 @magicgui(call_button="Previous Image")
 def previous_image():
@@ -89,6 +91,21 @@ def previous_image():
     if images:
         current_index = (current_index - 1) % len(images)  # Wrap around to the last image
         update_image()
+        image_slider.image_index.value = current_index  # Sync slider value
+
+
+@magicgui(image_index={"widget_type": "Slider", "min": 0, "max": 0, "step": 1})
+def image_slider(image_index: int = 0):
+    """Update the displayed image based on the slider value."""
+    global current_index, viewer
+    current_index = image_index
+    update_image()
+
+def update_slider_max():
+    """Update the maximum value of the slider based on the number of images."""
+    image_slider.image_index.max = len(images) - 1
+    image_slider.image_index.value = 0  # Reset the slider to the first image
+
 
 def update_image():
     """Update the displayed image and overlay CSV data."""
@@ -148,7 +165,8 @@ def trackin_main():
     layout.addWidget(load_csv.native)
     layout.addWidget(next_image.native)
     layout.addWidget(previous_image.native)
-    
+    layout.addWidget(image_slider.native)  # Add the slider widget
+
     # Set layout and return the widget
     container.setLayout(layout)
     return container
