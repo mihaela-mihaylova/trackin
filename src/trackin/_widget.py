@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
-from qtpy.QtWidgets import QFileDialog, QMessageBox,  QWidget, QVBoxLayout
+from qtpy.QtWidgets import QFileDialog, QMessageBox,  QWidget, QVBoxLayout, QPushButton
 import napari
 import numpy as np
 
@@ -131,7 +131,7 @@ def trackin_main():
     layout = QVBoxLayout()  # Create a vertical layout
     
     # Add buttons to the layout
-    choose_folder_button = QPushButton("Choose Folder")
+    '''choose_folder_button = QPushButton("Choose Folder")
     choose_folder_button.clicked.connect(choose_folder)
 
     load_csv_button = QPushButton("Load CSV")
@@ -141,13 +141,13 @@ def trackin_main():
     next_image_button.clicked.connect(next_image)
 
     previous_image_button = QPushButton("Previous Image")
-    previous_image_button.clicked.connect(previous_image)
+    previous_image_button.clicked.connect(previous_image)'''
 
-    # Add buttons to the layout
-    layout.addWidget(choose_folder_button)
-    layout.addWidget(load_csv_button)
-    layout.addWidget(next_image_button)
-    layout.addWidget(previous_image_button)
+    # Use the magicgui widgets and add them directly to the layout
+    layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
+    layout.addWidget(load_csv.native)
+    layout.addWidget(next_image.native)
+    layout.addWidget(previous_image.native)
     
     # Set layout and return the widget
     container.setLayout(layout)
