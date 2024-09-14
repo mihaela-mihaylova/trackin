@@ -94,12 +94,14 @@ def previous_image():
         image_slider.image_index.value = current_index  # Sync slider value
 
 
-@magicgui(image_index={"widget_type": "Slider", "min": 0, "max": 0, "step": 1})
+@magicgui(image_index={"widget_type": "Slider", "min": 0, "max": 0, "step": 1, "label": "Image Index"})
 def image_slider(image_index: int = 0):
     """Update the displayed image based on the slider value."""
     global current_index, viewer
-    current_index = image_index
-    update_image()
+    # Only update if the slider value has changed
+    if image_index != current_index:
+        current_index = image_index  # Update the global index
+        update_image()  # Refresh the viewer with the new image
 
 def update_slider_max():
     """Update the maximum value of the slider based on the number of images."""
@@ -110,19 +112,26 @@ def update_slider_max():
 def update_image():
     """Update the displayed image and overlay CSV data."""
     global viewer
-    if images and csv_data is not None:
-        # Clear existing layers and add the new image layer
+
+    # Ensure images are loaded
+    if images:
+        # Clear all layers to reset the viewer state
         viewer.layers.clear()
+
+        # Add the new image layer based on the current index
         viewer.add_image(images[current_index], name=os.path.basename(image_files[current_index]))
 
-        # Get the frame number corresponding to the current image
-        frame_number = int(os.path.splitext(os.path.basename(image_files[current_index]))[0])
+        # Check if CSV data is loaded and overlay points if available
+        if csv_data is not None:
+            # Get the frame number corresponding to the current image
+            frame_number = int(os.path.splitext(os.path.basename(image_files[current_index]))[0])
 
-        # Filter CSV data for the current frame
-        frame_data = csv_data[csv_data['tframe'] == frame_number]
+            # Filter CSV data for the current frame
+            frame_data = csv_data[csv_data['tframe'] == frame_number]
 
-        # Overlay the circles on the image
-        overlay_points(frame_data)
+            # Overlay the circles on the image
+            overlay_points(frame_data)
+
 
 def overlay_points(frame_data):
     """Overlay white circles of radius 20 pixels on the image for each (x, y) in the frame data."""
