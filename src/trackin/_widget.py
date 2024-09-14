@@ -68,7 +68,7 @@ def load_csv():
         try:
             csv_data = pd.read_csv(csv_path)
             print(f"CSV Data Loaded: {csv_path}")
-            QMessageBox.information(None, "CSV Load Success", f"CSV file loaded successfully: {os.path.basename(csv_path)}")
+            #QMessageBox.information(None, "CSV Load Success", f"CSV file loaded successfully: {os.path.basename(csv_path)}")
             csv_loaded = True
             check_and_update_image()
         except Exception as e:
@@ -93,20 +93,33 @@ def previous_image():
         update_image()
         image_slider.image_index.value = current_index  # Sync slider value
 
-
 @magicgui(image_index={"widget_type": "Slider", "min": 0, "max": 0, "step": 1, "label": "Image Index"})
 def image_slider(image_index: int = 0):
     """Update the displayed image based on the slider value."""
     global current_index, viewer
+    print(f"Function triggered: image_index = {image_index}, current_index = {current_index}")  # Debug print
     # Only update if the slider value has changed
     if image_index != current_index:
         current_index = image_index  # Update the global index
+        print(f'Updating image: new current_index = {current_index}')  # Debug print
         update_image()  # Refresh the viewer with the new image
+        print('image slider is definitely executing')
+
+# Connect the slider change event to trigger the image_slider function
+image_slider.image_index.changed.connect(lambda: image_slider())
+
 
 def update_slider_max():
-    """Update the maximum value of the slider based on the number of images."""
-    image_slider.image_index.max = len(images) - 1
-    image_slider.image_index.value = 0  # Reset the slider to the first image
+    """Update the up to maximum value of the slider based on the number of images."""
+    if images:
+        image_slider.image_index.max = len(images) - 1  # Set the slider's max value to the number of images
+        image_slider.image_index.value = current_index  # Set the slider value to the current index
+        print(f"Slider updated: max={image_slider.image_index.max}, value={image_slider.image_index.value}")  # Debug print
+    else:
+        image_slider.image_index.max = 0
+        image_slider.image_index.value = 0
+        print("No images available, slider reset to 0.")  # Debug print
+
 
 
 def update_image():
