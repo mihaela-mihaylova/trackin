@@ -167,8 +167,11 @@ def on_point_click(layer, event):
 
         if clicked_index is not None:
             # Retrieve the coordinates of the point at the clicked index
-            point_coords = layer.data[clicked_index]
-            print(f"Clicked on overlay circle at index: {clicked_index}, coordinates: {point_coords}")
+            point_coords = layer.data[clicked_index].copy()
+            #print(f"Clicked on overlay circle at index: {clicked_index}, coordinates: {point_coords}")
+            layer.data[clicked_index] = [-1000000, -1000000]
+            layer.refresh()
+            print(f'Removed point with coordinates {point_coords}')
 
 def setup_keybindings():
     """Set up key bindings for the viewer."""
