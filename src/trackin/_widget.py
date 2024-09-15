@@ -71,7 +71,7 @@ def load_csv():
         try:
             csv_data = pd.read_csv(csv_path)
             print(f"CSV Data Loaded: {csv_path}")
-            QMessageBox.information(None, "CSV Load Success", f"CSV file loaded successfully: {os.path.basename(csv_path)}")
+            #QMessageBox.information(None, "CSV Load Success", f"CSV file loaded successfully: {os.path.basename(csv_path)}")
             csv_loaded = True
             check_and_update_image()
         except Exception as e:
@@ -137,13 +137,32 @@ def overlay_points(frame_data):
     points = np.array([frame_data['y'], frame_data['x']]).T
 
     if points.size > 0:
-        viewer.add_points(
+        # Create the points layer
+        points_layer = viewer.add_points(
             points,
             size=20,
             face_color='transparent',
             border_color='white',
             name='Overlay Points'
         )
+
+        # Add mouse click event handler to the points layer
+        points_layer.mouse_drag_callbacks.append(on_point_click)
+
+
+def on_point_click(layer, event):
+    """Handle mouse click events to print the index and coordinates of the clicked detection."""
+    if event.button == 2:  # Right-click
+        # Get the coordinates of the clicked point in world coordinates
+        click_position = event.position
+
+        # Find the index of the closest point to the click
+        clicked_index = layer.get_value(event.position, world=True)
+
+        if clicked_index is not None:
+            # Retrieve the coordinates of the point at the clicked index
+            point_coords = layer.data[clicked_index]
+            print(f"Clicked on overlay circle at index: {clicked_index}, coordinates: {point_coords}")
 
 def setup_keybindings():
     """Set up key bindings for the viewer."""
@@ -157,19 +176,6 @@ def trackin_main():
     container = QWidget()
     layout = QVBoxLayout()  # Create a vertical layout
     
-    # Add buttons to the layout
-    '''choose_folder_button = QPushButton("Choose Folder")
-    choose_folder_button.clicked.connect(choose_folder)
-
-    load_csv_button = QPushButton("Load CSV")
-    load_csv_button.clicked.connect(load_csv)
-
-    next_image_button = QPushButton("Next Image")
-    next_image_button.clicked.connect(next_image)
-
-    previous_image_button = QPushButton("Previous Image")
-    previous_image_button.clicked.connect(previous_image)'''
-
     # Use the magicgui widgets and add them directly to the layout
     layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
     layout.addWidget(load_csv.native)
