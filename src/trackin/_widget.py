@@ -154,6 +154,7 @@ def overlay_points(frame_data):
 
         # Add mouse click event handler to the points layer
         points_layer.mouse_drag_callbacks.append(on_point_click)
+        points_layer.mouse_drag_callbacks.append(on_shift_left_click)  # Add the shift+click handler
 
 
 def on_point_click(layer, event):
@@ -172,6 +173,23 @@ def on_point_click(layer, event):
             layer.data[clicked_index] = [-1000000, -1000000]
             layer.refresh()
             print(f'Removed point with coordinates {point_coords}')
+
+def on_shift_left_click(layer, event):
+    """Handle shift + left mouse click events to add a new point."""
+    # Check if the Shift key is pressed and the left mouse button (button 1) is clicked
+    if event.button == 1 and 'Shift' in event.modifiers:
+        # Get the coordinates of the click position in world coordinates
+        click_position = event.position
+
+        # Append the new point to the layer's data
+        new_point = [click_position[0], click_position[1]]  # [y, x] format
+        layer.data = np.vstack([layer.data, new_point])  # Add the new point to the existing data
+
+        # Refresh the layer to display the new point
+        layer.refresh()
+
+        print(f"Added new point at coordinates: {new_point}")
+
 
 def setup_keybindings():
     """Set up key bindings for the viewer."""
