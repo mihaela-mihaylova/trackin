@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
-from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QPushButton
+from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout
 from qtpy.QtCore import Qt
 import napari
 import numpy as np
@@ -15,6 +15,7 @@ image_files = []
 csv_data = None
 images_loaded = False
 csv_loaded = False
+container = None  # Global reference to the container
 
 def initialize_viewer(napari_viewer):
     """Initialize the Napari viewer object."""
@@ -71,7 +72,6 @@ def load_csv():
         try:
             csv_data = pd.read_csv(csv_path)
             print(f"CSV Data Loaded: {csv_path}")
-            #QMessageBox.information(None, "CSV Load Success", f"CSV file loaded successfully: {os.path.basename(csv_path)}")
             csv_loaded = True
             check_and_update_image()
         except Exception as e:
@@ -80,32 +80,38 @@ def load_csv():
 
 def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
-    global current_index, viewer
+    global current_index, viewer, container
     if images:
         current_index = (current_index + 1) % len(images)
         update_image()
         image_slider.image_index.value = current_index  # Sync slider value
-    viewer.window.qt_viewer.setFocus()  # Keep focus on the viewer
+    
+    # Refocus the container after key press
+    if container:
+        container.setFocus()
 
 def previous_image(event=None):
     """Display the previous image in the sequence and overlay CSV data."""
-    global current_index, viewer
+    global current_index, viewer, container
     if images:
         current_index = (current_index - 1) % len(images)
         update_image()
         image_slider.image_index.value = current_index  # Sync slider value
-    viewer.window.qt_viewer.setFocus()  # Keep focus on the viewer
+    
+    # Refocus the container after key press
+    if container:
+        container.setFocus()
 
 @magicgui(image_index={"widget_type": "Slider", "min": 0, "max": 0, "step": 1, "label": "Frame"}, auto_call=True)
 def image_slider(image_index: int = 0):
     """Update the displayed image based on the slider value."""
-    global current_index, viewer
+    global current_index, viewer, container
     if image_index != current_index:
         current_index = image_index
         update_image()
-        # Refocus the viewer after slider change
-        viewer.window.qt_viewer.setFocus()
-
+        # Refocus the container after slider change
+        if container:
+            container.setFocus()
 
 def update_slider_max():
     """Update the maximum value of the slider based on the number of images."""
@@ -169,20 +175,22 @@ def setup_keybindings():
     viewer.bind_key('Right', next_image)  # Right arrow key to move to the next image
     viewer.bind_key('Left', previous_image)  # Left arrow key to move to the previous image
 
-
 def trackin_main():
     """Main function to show the plugin interface."""
-    # Create a QWidget to act as the container
+    global container
     container = QWidget()
-    layout = QVBoxLayout()  # Create a vertical layout
+    layout = QVBoxLayout(container)  # Create a vertical layout
     
     # Use the magicgui widgets and add them directly to the layout
     layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
     layout.addWidget(load_csv.native)
-    #layout.addWidget(next_image.native)
-    #layout.addWidget(previous_image.native)
     layout.addWidget(image_slider.native)  # Add the slider widget
 
-    # Set layout and return the widget
+    # Set layout to the container
     container.setLayout(layout)
+
+    # Set focus policy and initially focus the container
+    container.setFocusPolicy(Qt.StrongFocus)
+    container.setFocus()
+
     return container
