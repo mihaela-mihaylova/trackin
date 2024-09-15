@@ -43,7 +43,7 @@ def check_and_update_image():
     if images_loaded and csv_loaded:
         update_image()
 
-@magicgui(call_button="Choose Folder")
+@magicgui(call_button="Choose Folder", auto_call=True)
 def choose_folder():
     """Open a dialog to select a folder and load images from it."""
     global images, image_files, current_index, viewer, images_loaded
@@ -59,7 +59,7 @@ def choose_folder():
             check_and_update_image()
             update_slider_max()  # Update the slider range
 
-@magicgui(call_button="Load CSV")
+@magicgui(call_button="Load CSV", auto_call=True)
 def load_csv():
     """Open a dialog to select a CSV file and load its data."""
     global csv_data, csv_loaded
@@ -75,7 +75,7 @@ def load_csv():
             print(f"Could not load CSV file: {e}")
             QMessageBox.critical(None, "CSV Load Error", f"Could not load CSV file: {e}")
 
-@magicgui(call_button="Next Image")
+@magicgui(call_button="Next Image", auto_call=True)
 def next_image():
     """Display the next image in the sequence and overlay CSV data."""
     global current_index, viewer
@@ -84,7 +84,7 @@ def next_image():
         update_image()
         image_slider.image_index.value = current_index  # Sync slider value
 
-@magicgui(call_button="Previous Image")
+@magicgui(call_button="Previous Image", auto_call=True)
 def previous_image():
     """Display the previous image in the sequence and overlay CSV data."""
     global current_index, viewer
@@ -93,7 +93,7 @@ def previous_image():
         update_image()
         image_slider.image_index.value = current_index  # Sync slider value
 
-@magicgui(image_index={"widget_type": "Slider", "min": 0, "max": 0, "step": 1, "label": "Image Index"})
+@magicgui(image_index={"widget_type": "Slider", "min": 0, "max": 0, "step": 1, "label": "Frame"}, auto_call=True)
 def image_slider(image_index: int = 0):
     """Update the displayed image based on the slider value."""
     global current_index, viewer
@@ -185,8 +185,8 @@ def trackin_main():
     # Use the magicgui widgets and add them directly to the layout
     layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
     layout.addWidget(load_csv.native)
-    layout.addWidget(next_image.native)
-    layout.addWidget(previous_image.native)
+    #layout.addWidget(next_image.native)
+    #layout.addWidget(previous_image.native)
     layout.addWidget(image_slider.native)  # Add the slider widget
 
     # Set layout and return the widget
