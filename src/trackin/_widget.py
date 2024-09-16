@@ -63,20 +63,47 @@ def choose_folder():
             check_and_update_image()
             update_slider_max()
 
+
+def generate_positions_list(df):
+    DATA = []
+    for _, dft in df.groupby('tframe'):
+        positions = []
+        for _, row in dft.iterrows():
+            positions.append((row['y'], row['x'], row['displ_y'], row['displ_x']))
+        DATA.append(positions)
+
+    # Initialize the session.csv file
+    with open("session.csv", "w") as f:
+        f.write("")
+
+    return DATA  # Return the generated positions list
+
+def check_and_add_displ_cols(df):
+    if 'displ_x' not in df.columns:
+        df['displ_x'] = 0
+    if 'displ_y' not in df.columns:
+        df['displ_y'] = 0
+    return df
+
+@magicgui(call_button="Load CSV", auto_call=True)
 @magicgui(call_button="Load CSV", auto_call=True)
 def load_csv():
     """Open a dialog to select a CSV file and load its data."""
-    global csv_data, csv_loaded
+    global csv_data, csv_loaded, DATA
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
         try:
             csv_data = pd.read_csv(csv_path)
+            # Check if displacement columns exist, if not, add them with value 0
+            csv_data = check_and_add_displ_cols(csv_data)
+            DATA = generate_positions_list(csv_data)  # Store the returned positions list in DATA
             print(f"CSV Data Loaded: {csv_path}")
             csv_loaded = True
             check_and_update_image()
         except Exception as e:
             print(f"Could not load CSV file: {e}")
             QMessageBox.critical(None, "CSV Load Error", f"Could not load CSV file: {e}")
+
 
 def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
@@ -124,15 +151,23 @@ def update_slider_max():
 
 def update_image():
     """Update the displayed image and overlay CSV data."""
-    global viewer
+    global viewer, DATA
+
     if images:
+        # Clear previous layers and add the current image
         viewer.layers.clear()
         viewer.add_image(images[current_index], name=os.path.basename(image_files[current_index]))
 
-        if csv_data is not None:
+        # Ensure DATA and csv_data are loaded
+        if csv_data is not None and DATA is not None:
+            # Get the frame number from the current image file name
             frame_number = int(os.path.splitext(os.path.basename(image_files[current_index]))[0])
-            frame_data = csv_data[csv_data['tframe'] == frame_number]
-            overlay_points(frame_data)
+            
+            # Ensure the frame number is within the range of DATA
+            if 0 <= frame_number < len(DATA):
+                frame_data = DATA[frame_number]  # Access the corresponding frame data from the list
+                overlay_points(pd.DataFrame(frame_data, columns=['y', 'x', 'displ_y', 'displ_x']))  # Convert list to DataFrame for easier handling
+
 
 def overlay_points(frame_data):
     """Overlay white circles of radius 20 pixels on the image for each (x, y) in the frame data."""
@@ -149,16 +184,16 @@ def overlay_points(frame_data):
             size=20,
             face_color='transparent',
             border_color='white',
-            name='Overlay Points'
+            name='detections'
         )
 
         # Add mouse click event handler to the points layer
-        points_layer.mouse_drag_callbacks.append(on_point_click)
-        points_layer.mouse_drag_callbacks.append(on_shift_left_click)  # Add the shift+click handler
+        points_layer.mouse_drag_callbacks.append(delete_detection)
+        points_layer.mouse_drag_callbacks.append(add_detection)  # Add the shift+click handler
 
 
-def on_point_click(layer, event):
-    """Handle mouse click events to print the index and coordinates of the clicked detection."""
+def delete_detection(layer, event):
+    """Delete detection."""
     if event.button == 2:  # Right-click
         # Get the coordinates of the clicked point in world coordinates
         click_position = event.position
@@ -171,20 +206,20 @@ def on_point_click(layer, event):
             point_coords = layer.data[clicked_index].copy()
             #print(f"Clicked on overlay circle at index: {clicked_index}, coordinates: {point_coords}")
             layer.data[clicked_index] = [-1000000, -1000000]
+            DATA[current_index][clicked_index] = (-1000000, -1000000)
             layer.refresh()
             print(f'Removed point with coordinates {point_coords}')
 
-def on_shift_left_click(layer, event):
+def add_detection(layer, event):
     """Handle shift + left mouse click events to add a new point."""
     # Check if the Shift key is pressed and the left mouse button (button 1) is clicked
     if event.button == 1 and 'Shift' in event.modifiers:
         # Get the coordinates of the click position in world coordinates
         click_position = event.position
-
         # Append the new point to the layer's data
         new_point = [click_position[0], click_position[1]]  # [y, x] format
         layer.data = np.vstack([layer.data, new_point])  # Add the new point to the existing data
-
+        DATA[current_index].append([click_position[0], click_position[1],0,0])
         # Refresh the layer to display the new point
         layer.refresh()
 
