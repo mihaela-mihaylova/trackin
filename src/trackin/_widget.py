@@ -6,8 +6,12 @@ from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout
 from qtpy.QtCore import Qt
 import napari
 import numpy as np
+from napari.utils.events import EventEmitter
+from datetime import datetime
 
 # Global variables to hold the state
+global MAX_SCORE,SCORE_FUNC, DATA, TRACKED
+
 viewer = None
 current_index = 0
 images = []
@@ -17,6 +21,19 @@ images_loaded = False
 csv_loaded = False
 container = None  # Global reference to the container
 
+# global variables, which are related to the tool
+# cost function used for edge generation
+SCORE_FUNC="squared"
+MAX_SCORE=40*40
+# to change when a csv is loaded
+DATA = []
+TRACKED = False
+N_TRACKS = 0
+
+# EVENT EMITTERS
+csv_loaded_event = EventEmitter(source=None, type_name='csv_loaded')
+data_updated_event = EventEmitter(source=None, type_name='data_updated')
+
 def initialize_viewer(napari_viewer):
     """Initialize the Napari viewer object."""
     global viewer
@@ -24,6 +41,37 @@ def initialize_viewer(napari_viewer):
 
     # Set up key bindings for the viewer
     setup_keybindings()
+
+
+ # adds these displacement columns with value 0, in case they are not present
+def check_and_add_displ_cols(df):
+    if 'displ_x' not in df.columns:
+        df['displ_x'] = 0
+    if 'displ_y' not in df.columns:
+        df['displ_y'] = 0
+    return df
+
+# takes a df and turns it into a list of lists, necessary for the way data is read in the tool
+def generate_positions_list(df, folder_to_save):
+    global TRACKED, DATA
+    for _, dft in df.groupby('tframe'):
+        positions = []
+        for _, row in dft.iterrows():
+            if not TRACKED:
+                positions.append((row['y'], row['x'], row['displ_y'], row['displ_x']))
+            else:
+                positions.append((row['y'], row['x'], row['displ_y'], row['displ_x'], row['track_no']))
+
+        DATA.append(positions)
+
+    # generate the current timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # initialize the session.csv file, where tracks are saved
+    with open(os.path.join(folder_to_save, f"session_{timestamp}.csv"), "w") as f:
+        f.write("")
+    #print(DATA)
+    return DATA 
 
 def load_images_from_folder(folder_path):
     """Load images in numerical order from a given folder."""
@@ -63,43 +111,30 @@ def choose_folder():
             check_and_update_image()
             update_slider_max()
 
-
-def generate_positions_list(df):
-    DATA = []
-    for _, dft in df.groupby('tframe'):
-        positions = []
-        for _, row in dft.iterrows():
-            positions.append((row['y'], row['x'], row['displ_y'], row['displ_x']))
-        DATA.append(positions)
-
-    # Initialize the session.csv file
-    with open("session.csv", "w") as f:
-        f.write("")
-
-    return DATA  # Return the generated positions list
-
-def check_and_add_displ_cols(df):
-    if 'displ_x' not in df.columns:
-        df['displ_x'] = 0
-    if 'displ_y' not in df.columns:
-        df['displ_y'] = 0
-    return df
-
-@magicgui(call_button="Load CSV", auto_call=True)
 @magicgui(call_button="Load CSV", auto_call=True)
 def load_csv():
     """Open a dialog to select a CSV file and load its data."""
-    global csv_data, csv_loaded, DATA
+    global csv_data, csv_loaded, DATA, TRACKED
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
         try:
-            csv_data = pd.read_csv(csv_path)
+            csv_data = pd.read_csv(csv_path).astype(int)
             # Check if displacement columns exist, if not, add them with value 0
             csv_data = check_and_add_displ_cols(csv_data)
-            DATA = generate_positions_list(csv_data)  # Store the returned positions list in DATA
-            print(f"CSV Data Loaded: {csv_path}")
+            TRACKED = 'track_no' in csv_data.columns
+            # rearrange columns in df (in case we have tframe, y,x,track_no)
+            if TRACKED:
+                csv_data = csv_data[['tframe','y', 'x', 'displ_y', 'displ_x', 'track_no']]
+            folder_to_save = os.path.dirname(csv_path)
+            DATA = generate_positions_list(csv_data, folder_to_save)  # Store the returned positions list in DATA
             csv_loaded = True
             check_and_update_image()
+
+            csv_loaded_event()  # Emit event
+            print("Emitting csv_loaded_event...")  # Add this line
+
+            data_updated_event()
+
         except Exception as e:
             print(f"Could not load CSV file: {e}")
             QMessageBox.critical(None, "CSV Load Error", f"Could not load CSV file: {e}")
@@ -151,7 +186,7 @@ def update_slider_max():
 
 def update_image():
     """Update the displayed image and overlay CSV data."""
-    global viewer, DATA
+    global viewer, DATA, TRACKED
 
     if images:
         # Clear previous layers and add the current image
@@ -166,7 +201,14 @@ def update_image():
             # Ensure the frame number is within the range of DATA
             if 0 <= frame_number < len(DATA):
                 frame_data = DATA[frame_number]  # Access the corresponding frame data from the list
-                overlay_points(pd.DataFrame(frame_data, columns=['y', 'x', 'displ_y', 'displ_x']))  # Convert list to DataFrame for easier handling
+                 # Dynamically adjust column names based on whether `track_no` is present
+                if not TRACKED:
+                    columns = ['y', 'x', 'displ_y', 'displ_x']  
+                else:
+                    columns = ['y', 'x', 'displ_y', 'displ_x', 'track_no']
+                   
+                # Create the DataFrame with the appropriate number of columns
+                overlay_points(pd.DataFrame(frame_data, columns=columns))
 
 
 def overlay_points(frame_data):
@@ -190,7 +232,6 @@ def overlay_points(frame_data):
         # Add mouse click event handler to the points layer
         points_layer.mouse_drag_callbacks.append(delete_detection)
         points_layer.mouse_drag_callbacks.append(add_detection)  # Add the shift+click handler
-
 
 def delete_detection(layer, event):
     """Delete detection."""
@@ -224,7 +265,6 @@ def add_detection(layer, event):
         layer.refresh()
 
         print(f"Added new point at coordinates: {new_point}")
-
 
 def setup_keybindings():
     """Set up key bindings for the viewer."""
