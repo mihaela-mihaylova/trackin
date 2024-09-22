@@ -3,6 +3,8 @@
 import napari
 
 from ._widget import initialize_viewer, trackin_main
+from .utils import build_graph  
+
 
 # Initialize the Napari viewer
 viewer = napari.Viewer()
