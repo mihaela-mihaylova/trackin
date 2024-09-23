@@ -7,10 +7,8 @@ from qtpy.QtCore import Qt
 import napari
 import numpy as np
 from napari.utils.events import EventEmitter
+from .shared_state import shared_state
 from datetime import datetime
-
-# Global variables to hold the state
-global MAX_SCORE,SCORE_FUNC, DATA, TRACKED
 
 viewer = None
 current_index = 0
@@ -20,15 +18,6 @@ csv_data = None
 images_loaded = False
 csv_loaded = False
 container = None  # Global reference to the container
-
-# global variables, which are related to the tool
-# cost function used for edge generation
-SCORE_FUNC="squared"
-MAX_SCORE=40*40
-# to change when a csv is loaded
-DATA = []
-TRACKED = False
-N_TRACKS = 0
 
 # EVENT EMITTERS
 csv_loaded_event = EventEmitter(source=None, type_name='csv_loaded')
@@ -53,16 +42,15 @@ def check_and_add_displ_cols(df):
 
 # takes a df and turns it into a list of lists, necessary for the way data is read in the tool
 def generate_positions_list(df, folder_to_save):
-    global TRACKED, DATA
     for _, dft in df.groupby('tframe'):
         positions = []
         for _, row in dft.iterrows():
-            if not TRACKED:
+            if not shared_state.TRACKED:
                 positions.append((row['y'], row['x'], row['displ_y'], row['displ_x']))
             else:
                 positions.append((row['y'], row['x'], row['displ_y'], row['displ_x'], row['track_no']))
 
-        DATA.append(positions)
+        shared_state.DATA.append(positions)
 
     # generate the current timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -71,7 +59,7 @@ def generate_positions_list(df, folder_to_save):
     with open(os.path.join(folder_to_save, f"session_{timestamp}.csv"), "w") as f:
         f.write("")
     #print(DATA)
-    return DATA 
+    return shared_state.DATA 
 
 def load_images_from_folder(folder_path):
     """Load images in numerical order from a given folder."""
@@ -113,32 +101,30 @@ def choose_folder():
 
 @magicgui(call_button="Load CSV", auto_call=True)
 def load_csv():
+    global csv_loaded, csv_data
     """Open a dialog to select a CSV file and load its data."""
-    global csv_data, csv_loaded, DATA, TRACKED
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
         try:
             csv_data = pd.read_csv(csv_path).astype(int)
             # Check if displacement columns exist, if not, add them with value 0
             csv_data = check_and_add_displ_cols(csv_data)
-            TRACKED = 'track_no' in csv_data.columns
+            shared_state.TRACKED = 'track_no' in csv_data.columns
             # rearrange columns in df (in case we have tframe, y,x,track_no)
-            if TRACKED:
+            if shared_state.TRACKED:
                 csv_data = csv_data[['tframe','y', 'x', 'displ_y', 'displ_x', 'track_no']]
             folder_to_save = os.path.dirname(csv_path)
-            DATA = generate_positions_list(csv_data, folder_to_save)  # Store the returned positions list in DATA
+            shared_state.DATA = generate_positions_list(csv_data, folder_to_save)  # Store the returned positions list in DATA
+            print(shared_state.DATA)
             csv_loaded = True
             check_and_update_image()
 
-            csv_loaded_event()  # Emit event
-            print("Emitting csv_loaded_event...")  # Add this line
-
-            data_updated_event()
+            # emit event to trigger track function in utils
+            csv_loaded_event()  
 
         except Exception as e:
             print(f"Could not load CSV file: {e}")
             QMessageBox.critical(None, "CSV Load Error", f"Could not load CSV file: {e}")
-
 
 def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
@@ -186,23 +172,22 @@ def update_slider_max():
 
 def update_image():
     """Update the displayed image and overlay CSV data."""
-    global viewer, DATA, TRACKED
-
+    global viewer
     if images:
         # Clear previous layers and add the current image
         viewer.layers.clear()
         viewer.add_image(images[current_index], name=os.path.basename(image_files[current_index]))
 
         # Ensure DATA and csv_data are loaded
-        if csv_data is not None and DATA is not None:
+        if csv_data is not None and shared_state.DATA is not None:
             # Get the frame number from the current image file name
             frame_number = int(os.path.splitext(os.path.basename(image_files[current_index]))[0])
             
             # Ensure the frame number is within the range of DATA
-            if 0 <= frame_number < len(DATA):
-                frame_data = DATA[frame_number]  # Access the corresponding frame data from the list
+            if 0 <= frame_number < len(shared_state.DATA):
+                frame_data = shared_state.DATA[frame_number]  # Access the corresponding frame data from the list
                  # Dynamically adjust column names based on whether `track_no` is present
-                if not TRACKED:
+                if not shared_state.TRACKED:
                     columns = ['y', 'x', 'displ_y', 'displ_x']  
                 else:
                     columns = ['y', 'x', 'displ_y', 'displ_x', 'track_no']
@@ -247,7 +232,7 @@ def delete_detection(layer, event):
             point_coords = layer.data[clicked_index].copy()
             #print(f"Clicked on overlay circle at index: {clicked_index}, coordinates: {point_coords}")
             layer.data[clicked_index] = [-1000000, -1000000]
-            DATA[current_index][clicked_index] = (-1000000, -1000000)
+            shared_state.DATA[current_index][clicked_index] = (-1000000, -1000000)
             layer.refresh()
             print(f'Removed point with coordinates {point_coords}')
 
@@ -260,7 +245,7 @@ def add_detection(layer, event):
         # Append the new point to the layer's data
         new_point = [click_position[0], click_position[1]]  # [y, x] format
         layer.data = np.vstack([layer.data, new_point])  # Add the new point to the existing data
-        DATA[current_index].append([click_position[0], click_position[1],0,0])
+        shared_state.DATA[current_index].append([click_position[0], click_position[1],0,0])
         # Refresh the layer to display the new point
         layer.refresh()
 

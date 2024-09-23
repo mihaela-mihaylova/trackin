@@ -8,34 +8,44 @@ import pandas as pd
 import heapq
 from datetime import datetime
 from .tracking import generate_graph, generate_track, generate_tracks
-from ._widget import data_updated_event, csv_loaded_event,  DATA, TRACKED, MAX_SCORE, SCORE_FUNC  # Import variables and event
+from ._widget import csv_loaded_event
+from .shared_state import shared_state
 from napari.utils.notifications import show_info
+from napari.utils.events import EventEmitter
 
 
 '''def safeindex(l,i):
 	try:
 		return l.index(i)
 	except ValueError: 
-		return -1
+		return -1'''
 
 def track_to_posarray( trackp ):
-	track = [-1] * len( DATA )
+	data = shared_state.DATA
+	shared_state.track = [-1] * len( data )
 	for n in trackp:
-		if G.nodes[n]["type"]=="D":
-			track[G.nodes[n]["time_point"]] = G.nodes[n]["idx"]
-	return track
+		if shared_state.G.nodes[n]["type"]=="D":
+			shared_state.track[shared_state.G.nodes[n]["time_point"]] = shared_state.G.nodes[n]["idx"]
+	return shared_state.track
 
 def send_track():
-	track = track_to_posarray( generate_track( G ) )
-	return dict(track=track,
-		npos=G.number_of_nodes()-2-2*(len(DATA)-1),
-		nconn=G.number_of_edges()-2*(len(DATA)))
+	# load up-to-date values of variables
+	data = shared_state.DATA
+	graph = shared_state.G
+	shared_state.track = track_to_posarray( generate_track( graph ) )
+	shared_state.track_dict = dict(track=shared_state.track,
+		npos=shared_state.G.number_of_nodes()-2-2*(len(data)-1),
+		nconn=shared_state.G.number_of_edges()-2*(len(data)))
+	
+	return shared_state.track_dict
 
-def update_counts():
+#built_graph_event.connect(send_track)
+
+'''def update_counts():
 	return dict(npos=G.number_of_nodes()-2-2*(len(DATA)-1),
-		nconn=G.number_of_edges()-2*(len(DATA)))
+		nconn=G.number_of_edges()-2*(len(DATA)))'''
 
-@app.route('/accept-track/', methods=['POST'])
+'''@app.route('/accept-track/', methods=['POST'])
 def accept_track():
 	global N_TRACKS
 	N_TRACKS += 1
@@ -59,9 +69,9 @@ def accept_track():
 			if DATA[i][j][0]!=-1000000 and DATA[i][j][1]!=-1000000:
 				g.write(f"{i},{DATA[i][j][0]},{DATA[i][j][1]},{DATA[i][j][2]},{DATA[i][j][3]}\n")
 	g.close()
-	return send_track()
+	return send_track()'''
 
-@app.route('/delete-detection/', methods=['POST'])
+'''@app.route('/delete-detection/', methods=['POST'])
 def delete_detection():
 	content = request.json
 	t = content["frame"]
@@ -82,10 +92,10 @@ def delete_detection():
 				f.write(f"{i},{DATA[i][j][0]},{DATA[i][j][1]},{DATA[i][j][2]},{DATA[i][j][3]}\n")
 	f.close()
 
-	return send_track()
+	return send_track()'''
 	
 
-@app.route('/click-delete-detection/', methods=['POST'])
+'''@app.route('/click-delete-detection/', methods=['POST'])
 def click_delete_detection():
 	content = request.json
 	t = content["frame"]
@@ -110,10 +120,10 @@ def click_delete_detection():
 	if is_in_track:
 		return send_track()
 	else:
-		return update_counts()
+		return update_counts()'''
 
 
-@app.route('/add-detection/', methods=['POST'])
+'''@app.route('/add-detection/', methods=['POST'])
 def add_detection():
 	content = request.json
 	t = content["frame"]
@@ -136,10 +146,10 @@ def add_detection():
 			if DATA[i][j][0]!= -1000000 and DATA[i][j][1]!=-1000000:
 				f.write(f"{i},{DATA[i][j][0]},{DATA[i][j][1]},{DATA[i][j][2]},{DATA[i][j][3]}\n")
 	f.close()
-	return update_counts()
+	return update_counts()'''
 
 # push current segment(not the suggested one, accepted by pressing A, but the one with registered changes)
-@app.route('/push-segment/', methods=['POST'])
+'''@app.route('/push-segment/', methods=['POST'])
 def push_segment():
 	global N_TRACKS
 	N_TRACKS += 1
@@ -186,10 +196,10 @@ def push_segment():
 	g.close()
 	for node in nodes_of_segment:
 		G.remove_node(node)
-	return send_track()
+	return send_track()'''
 
 
-@app.route('/delete-connection/', methods=['POST'])
+'''@app.route('/delete-connection/', methods=['POST'])
 def delete_connection():
 	content = request.json
 	t1 = content["frame1"]
@@ -200,10 +210,10 @@ def delete_connection():
 	n2 = f"D_{t2}_{i2}"
 	print( f"deleting connection ({n1},{n2})")
 	G.remove_edge( n1, n2 )
-	return send_track()
+	return send_track()'''
 
 
-@app.route('/delete-connection-prev-conns/', methods=['POST'])
+'''@app.route('/delete-connection-prev-conns/', methods=['POST'])
 def delete_connection_prev_conns():
 	content = request.json
 	t1 = content["frame1"]
@@ -237,10 +247,10 @@ def delete_connection_prev_conns():
 	else:
 		segment_list=[]
 	print(f'Correct segment saved: {segment_list}')
-	return send_track()
+	return send_track()'''
 
 
-@app.route('/delete-all-connections-from-node/', methods=['POST'])
+'''@app.route('/delete-all-connections-from-node/', methods=['POST'])
 def delete_all_connections():
 	content = request.json
 	t1 = content["frame1"]
@@ -277,35 +287,38 @@ def accept_segment():
 def track0():
 	return redirect(url_for('track',i=0))'''
 
-
 def build_graph():
-    global DATA, TRACKED, MAX_SCORE, SCORE_FUNC  # Access global variables
+    # ensure new values are loaded (values not updated by default)
+    data = shared_state.DATA
+    tracked = shared_state.TRACKED
+    max_score = shared_state.MAX_SCORE
+    score_func = shared_state.SCORE_FUNC
 
-    data = DATA
-    print(type(data))
-    tracked = TRACKED
-    max_score = MAX_SCORE
-    score_func = SCORE_FUNC
-
+    print(f'value of shared.TRACKED in utils:{shared_state.TRACKED}')
     # Generate the graph using the updated global variables
-    G = generate_graph(data, max_score=max_score, score_func=score_func, tracked=tracked)
-    print(f"Graph generated: {G.nodes}")
+    #G = generate_graph(data, max_score, score_func, tracked)
+    shared_state.G = generate_graph(data, max_score, score_func, tracked)
+    
+		
+def track():
+    # If the graph isn't built yet, build it
+    if shared_state.G is None:
+        show_info("Building graph since it hasn't been created yet...")
+        build_graph()
+    
+    graph = shared_state.G
+    data = shared_state.DATA
 
-data_updated_event.connect(build_graph)
-csv_loaded_event.connect(build_graph)
+    # Ensure the graph was actually built
+    if shared_state.G is not None:
+        generate_tracks(graph, data, max_num=1, debug=False)
+        return send_track()
+    else:
+        show_info("Error: Unable to track, graph is not built")
+
+csv_loaded_event.connect(track)
 
 
-'''@app.route('/track/<int:i>')
-def track(i=0):
-	#if i > 0:
-	#	generate_tracks(g, data, max_num=i, debug=False)
-	#tracks = list(map( lambda l: safeindex(l,1), 
-	#	generate_tracks(g, data, max_num=1, debug=False) ))
-	if G is None or i>0:
-		build_graph()
-	generate_tracks( G, DATA, max_num=i, debug=False )
-	return send_track()
-
-@app.route('/frame/<path:path>', methods=['GET'])
+'''@app.route('/frame/<path:path>', methods=['GET'])
 def frame(path):
     return send_from_directory( FRAMES_DIR, path )'''

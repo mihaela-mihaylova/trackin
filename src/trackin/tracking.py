@@ -74,7 +74,7 @@ def generate_graph(points, max_score, score_func, tracked):
                 # check if both nodes are in the graph
                 if f"D_{t}_{i}" in G.nodes() and f"D_{t+1}_{j}" in G.nodes():
                     # if detections come from a tracked file and are part of the same track, multiply score by coeff
-                    if tracked and G[f"D_{t}_{i}"]['track_no'] == G[f"D_{t+1}_{j}"]['track_no']:
+                    if tracked and G.nodes[f"D_{t}_{i}"]['track_no'] == G.nodes[f"D_{t+1}_{j}"]['track_no']:
                         score = score*coeff
                         G.add_edge(f"D_{t}_{i}", f"D_{t+1}_{j}", weight = score)
                     else:
@@ -84,6 +84,7 @@ def generate_graph(points, max_score, score_func, tracked):
     G = add_stxy_nodes_and_edges(G, num_frames=len(points), max_score=max_score, nodes_per_frame=nodes_per_frame)
  
     return G
+
 
 # adds the stxy-nodes and -edges
 def add_stxy_nodes_and_edges(G, num_frames, max_score, nodes_per_frame):
