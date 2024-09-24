@@ -105,6 +105,18 @@ def choose_folder():
 def load_csv():
     global csv_loaded, csv_data
     """Open a dialog to select a CSV file and load its data."""
+    
+    # Check if images are loaded
+    if not images_loaded:
+        # Show a popup window informing the user that images should be loaded first
+        msg_box = QMessageBox()
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setWindowTitle("Load Images First")
+        msg_box.setText("Please load the images before loading the CSV file.")
+        msg_box.setStandardButtons(QMessageBox.Ok)
+        msg_box.exec_()
+        return  # Exit the function without proceeding
+
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
         #try:
@@ -112,21 +124,17 @@ def load_csv():
         # Check if displacement columns exist, if not, add them with value 0
         csv_data = check_and_add_displ_cols(csv_data)
         shared_state.TRACKED = 'track_no' in csv_data.columns
-        # rearrange columns in df (in case we have tframe, y,x,track_no)
+        # Rearrange columns in df (in case we have tframe, y, x, track_no)
         if shared_state.TRACKED:
-            csv_data = csv_data[['tframe','y', 'x', 'displ_y', 'displ_x', 'track_no']]
+            csv_data = csv_data[['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']]
         folder_to_save = os.path.dirname(csv_path)
         shared_state.DATA = generate_positions_list(csv_data, folder_to_save)  # Store the returned positions list in DATA
-        #print(shared_state.DATA)
+        
         csv_loaded = True
-        # emit event to trigger track function in utils
+        # Emit event to trigger track function in utils
         csv_loaded_event()  
 
         check_and_update_image()
-
-        #except Exception as e:
-        #    print(f"Could not load CSV file: {e}")
-        #   QMessageBox.critical(None, "CSV Load Error", f"Could not load CSV file: {e}")
 
 def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
@@ -343,10 +351,31 @@ def add_detection(layer, event):
         else:
             print("Clicked outside the image bounds. Point not added.")
 
+def delete_track_detection(layer):
+    """Delete the track detection triggered by the 'D' key."""
+    # Check if track contains detection in this frame
+    curr_track = shared_state.track
+    if curr_track[current_index] != -1:
+        track_index = curr_track[current_index]
+        point_coords = layer.data[track_index].copy()
+
+        # Mark the track point as deleted (set it to a large out-of-bounds value)
+        layer.data[track_index] = [-1000000, -1000000]
+        shared_state.DATA[current_index][track_index] = (-1000000, -1000000)
+
+        # Update the track for the current frame, marking it as deleted
+        shared_state.track[current_index] = -1  # This explicitly updates the track index to -1
+
+        layer.refresh()
+        print(f"Removed track point with coordinates {point_coords}")
+    else:
+        print("No track point found to delete in the current frame.")
+
 def setup_keybindings():
     """Set up key bindings for the viewer."""
     viewer.bind_key('Right', next_image)  # Right arrow key to move to the next image
     viewer.bind_key('Left', previous_image)  # Left arrow key to move to the previous image
+    viewer.bind_key('D', lambda event: delete_track_detection(viewer.layers.selection.active))  # Bind 'D' key to delete track detection
 
 def trackin_main():
     """Main function to show the plugin interface."""

@@ -297,7 +297,6 @@ def build_graph():
     #G = generate_graph(data, max_score, score_func, tracked)
     shared_state.G = generate_graph(data, max_score, score_func, tracked)
     
-		
 def track():
     # If the graph isn't built yet, build it
     if shared_state.G is None:
@@ -308,7 +307,7 @@ def track():
     send_track()
 	
 csv_loaded_event.connect(track)
-
+#remove_track_node.connect(track)
 
 '''@app.route('/frame/<path:path>', methods=['GET'])
 def frame(path):
