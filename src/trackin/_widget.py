@@ -72,7 +72,9 @@ def load_images_from_folder(folder_path):
     for img in image_files:
         try:
             image = imread(os.path.join(folder_path, img))
-            images.append(image)
+            # Add white border to the image
+            image_with_border = add_white_border(image, border_size=2)
+            images.append(image_with_border)
         except Exception as e:
             print(f"Could not open image {img}: {e}")
             QMessageBox.critical(None, "Image Load Error", f"Could not open image {img}: {e}")
