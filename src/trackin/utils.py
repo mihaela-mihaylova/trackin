@@ -36,8 +36,6 @@ def send_track():
 	shared_state.track_dict = dict(track=shared_state.track,
 		npos=shared_state.G.number_of_nodes()-2-2*(len(data)-1),
 		nconn=shared_state.G.number_of_edges()-2*(len(data)))
-	
-	return shared_state.track_dict
 
 #built_graph_event.connect(send_track)
 
@@ -305,17 +303,10 @@ def track():
     if shared_state.G is None:
         show_info("Building graph since it hasn't been created yet...")
         build_graph()
-    
-    graph = shared_state.G
-    data = shared_state.DATA
 
     # Ensure the graph was actually built
-    if shared_state.G is not None:
-        generate_tracks(graph, data, max_num=1, debug=False)
-        return send_track()
-    else:
-        show_info("Error: Unable to track, graph is not built")
-
+    send_track()
+	
 csv_loaded_event.connect(track)
 
 
