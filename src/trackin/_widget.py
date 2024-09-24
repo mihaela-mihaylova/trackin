@@ -105,26 +105,26 @@ def load_csv():
     """Open a dialog to select a CSV file and load its data."""
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
-        try:
-            csv_data = pd.read_csv(csv_path).astype(int)
-            # Check if displacement columns exist, if not, add them with value 0
-            csv_data = check_and_add_displ_cols(csv_data)
-            shared_state.TRACKED = 'track_no' in csv_data.columns
-            # rearrange columns in df (in case we have tframe, y,x,track_no)
-            if shared_state.TRACKED:
-                csv_data = csv_data[['tframe','y', 'x', 'displ_y', 'displ_x', 'track_no']]
-            folder_to_save = os.path.dirname(csv_path)
-            shared_state.DATA = generate_positions_list(csv_data, folder_to_save)  # Store the returned positions list in DATA
-            print(shared_state.DATA)
-            csv_loaded = True
-            check_and_update_image()
+        #try:
+        csv_data = pd.read_csv(csv_path).astype(int)
+        # Check if displacement columns exist, if not, add them with value 0
+        csv_data = check_and_add_displ_cols(csv_data)
+        shared_state.TRACKED = 'track_no' in csv_data.columns
+        # rearrange columns in df (in case we have tframe, y,x,track_no)
+        if shared_state.TRACKED:
+            csv_data = csv_data[['tframe','y', 'x', 'displ_y', 'displ_x', 'track_no']]
+        folder_to_save = os.path.dirname(csv_path)
+        shared_state.DATA = generate_positions_list(csv_data, folder_to_save)  # Store the returned positions list in DATA
+        #print(shared_state.DATA)
+        csv_loaded = True
+        # emit event to trigger track function in utils
+        csv_loaded_event()  
 
-            # emit event to trigger track function in utils
-            csv_loaded_event()  
+        check_and_update_image()
 
-        except Exception as e:
-            print(f"Could not load CSV file: {e}")
-            QMessageBox.critical(None, "CSV Load Error", f"Could not load CSV file: {e}")
+        #except Exception as e:
+        #    print(f"Could not load CSV file: {e}")
+        #   QMessageBox.critical(None, "CSV Load Error", f"Could not load CSV file: {e}")
 
 def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
@@ -197,26 +197,62 @@ def update_image():
 
 
 def overlay_points(frame_data):
-    """Overlay white circles of radius 20 pixels on the image for each (x, y) in the frame data."""
+    """Overlay white circles on the image for each (x, y) in the frame data, with special styling for the track point."""
     global viewer
+
+    print("Overlay function called")  # Debugging to ensure the function is called
+
     if frame_data.empty:
+        print("No frame data provided")
         return
 
+    # Extract (y, x) positions from the dataframe
     points = np.array([frame_data['y'], frame_data['x']]).T
 
+    print(f'this is the max index for data in frame: {len(shared_state.DATA[current_index])}')
+    curr_track = shared_state.track
+
+    # Prepare default attributes for all points
+    border_colors = ['white'] * len(points)
+    sizes = [20] * len(points)  # Default size
+    border_widths = [1] * len(points)  # Default border width
+
+    # Check if track contains detection in this frame and apply custom styles for the track point
+    if curr_track[current_index] != -1:
+        track_index = curr_track[current_index]
+        border_colors[track_index] = 'yellow'  # Highlight the track point in yellow
+        sizes[track_index] = 30  # Increase the size of the track point
+        border_widths[track_index] = 3  # Ensure it's between 0 and 1 for relative mode
+
     if points.size > 0:
-        # Create the points layer
+        # Create the points layer with custom attributes for the track point
         points_layer = viewer.add_points(
             points,
-            size=20,
+            size=sizes,  # Apply individual sizes
             face_color='transparent',
-            border_color='white',
+            border_color=border_colors,  # Apply individual border colors
+            border_width=border_widths,  # Apply individual border widths
+            border_width_is_relative=False,  # Set to relative mode
             name='detections'
         )
 
-        # Add mouse click event handler to the points layer
+        # Function to switch focus to points_layer when clicked
+        '''def switch_to_points_layer(layer, event):
+            viewer.layers.selection.active = layer
+            print("Switched to points layer")
+
+        # Add the callback to switch focus to points layer
+        points_layer.mouse_drag_callbacks.append(switch_to_points_layer)'''
+
+        # Add mouse click event handlers to the points layer
         points_layer.mouse_drag_callbacks.append(delete_detection)
         points_layer.mouse_drag_callbacks.append(add_detection)  # Add the shift+click handler
+
+    # Initially, set the points layer as active
+    viewer.layers.selection.active = points_layer
+
+
+
 
 def delete_detection(layer, event):
     """Delete detection."""
