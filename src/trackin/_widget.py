@@ -170,13 +170,42 @@ def update_slider_max():
         image_slider.image_index.max = 0
         image_slider.image_index.value = 0
 
+def add_white_border(image, border_size=1):
+    """Add a white border around the image."""
+    # Create a new image with a white border around the original image
+    new_image_shape = (
+        image.shape[0] + 2 * border_size,
+        image.shape[1] + 2 * border_size,
+        3 if image.ndim == 3 else 1  # Handle both grayscale and RGB images
+    )
+    
+    if image.ndim == 2:  # Grayscale image
+        new_image = np.ones(new_image_shape[:2], dtype=image.dtype) * 255  # White border
+        new_image[border_size:-border_size, border_size:-border_size] = image
+    else:  # RGB image
+        new_image = np.ones(new_image_shape, dtype=image.dtype) * 255  # White border
+        new_image[border_size:-border_size, border_size:-border_size, :] = image
+    
+    return new_image
+
 def update_image():
-    """Update the displayed image and overlay CSV data."""
+    """Update the displayed image and overlay CSV data without changing zoom level."""
     global viewer
     if images:
-        # Clear previous layers and add the current image
+        # Get the current image and add a white border to it
+        bordered_image = add_white_border(images[current_index], border_size=2)
+
+        # Store the current camera settings (zoom and center)
+        current_zoom = viewer.camera.zoom
+        current_center = viewer.camera.center
+
+        # Clear previous layers and add the current image with the white border
         viewer.layers.clear()
-        viewer.add_image(images[current_index], name=os.path.basename(image_files[current_index]))
+        viewer.add_image(bordered_image, name=os.path.basename(image_files[current_index]))
+
+        # Restore the camera zoom and center position
+        viewer.camera.zoom = current_zoom
+        viewer.camera.center = current_center
 
         # Ensure DATA and csv_data are loaded
         if csv_data is not None and shared_state.DATA is not None:
@@ -186,7 +215,7 @@ def update_image():
             # Ensure the frame number is within the range of DATA
             if 0 <= frame_number < len(shared_state.DATA):
                 frame_data = shared_state.DATA[frame_number]  # Access the corresponding frame data from the list
-                 # Dynamically adjust column names based on whether `track_no` is present
+                # Dynamically adjust column names based on whether `track_no` is present
                 if not shared_state.TRACKED:
                     columns = ['y', 'x', 'displ_y', 'displ_x']  
                 else:
@@ -194,6 +223,7 @@ def update_image():
                    
                 # Create the DataFrame with the appropriate number of columns
                 overlay_points(pd.DataFrame(frame_data, columns=columns))
+
 
 
 def overlay_points(frame_data):
@@ -208,8 +238,6 @@ def overlay_points(frame_data):
 
     # Extract (y, x) positions from the dataframe
     points = np.array([frame_data['y'], frame_data['x']]).T
-
-    print(f'this is the max index for data in frame: {len(shared_state.DATA[current_index])}')
     curr_track = shared_state.track
 
     # Prepare default attributes for all points
