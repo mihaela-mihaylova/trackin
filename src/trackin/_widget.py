@@ -279,9 +279,6 @@ def overlay_points(frame_data):
     # Initially, set the points layer as active
     viewer.layers.selection.active = points_layer
 
-
-
-
 def delete_detection(layer, event):
     """Delete detection."""
     if event.button == 2:  # Right-click
@@ -301,19 +298,48 @@ def delete_detection(layer, event):
             print(f'Removed point with coordinates {point_coords}')
 
 def add_detection(layer, event):
-    """Handle shift + left mouse click events to add a new point."""
-    # Check if the Shift key is pressed and the left mouse button (button 1) is clicked
+    """Handle shift + left mouse click events to add a new point within image bounds."""
     if event.button == 1 and 'Shift' in event.modifiers:
-        # Get the coordinates of the click position in world coordinates
-        click_position = event.position
-        # Append the new point to the layer's data
-        new_point = [click_position[0], click_position[1]]  # [y, x] format
-        layer.data = np.vstack([layer.data, new_point])  # Add the new point to the existing data
-        shared_state.DATA[current_index].append([click_position[0], click_position[1],0,0])
-        # Refresh the layer to display the new point
-        layer.refresh()
+        # Convert world coordinates to data coordinates (pixel coordinates)
+        data_coords = layer.world_to_data(event.position)
 
-        print(f"Added new point at coordinates: {new_point}")
+        # Get the dimensions of the currently displayed image
+        image_shape = images[current_index].shape  # This gets (height, width) for the image
+
+        # Ensure the click is within the image bounds
+        if (0 <= data_coords[0] < image_shape[0]) and (0 <= data_coords[1] < image_shape[1]):
+            # Append the new point to the layer's data in data coordinates (pixels)
+            new_point = [data_coords[0], data_coords[1]]  # [y, x] format
+
+            # Add the new point to the existing points layer data
+            layer.data = np.vstack([layer.data, new_point])
+
+            # Determine the default point size (20) or get the minimum size of existing points
+            if len(layer.size) > 0:
+                point_size = 20
+           
+            # Create a new size array matching the updated data length
+            new_size_array = np.full((len(layer.data),), point_size)
+
+            # Ensure the size of the track detection in the current frame is changed to 30
+            curr_track = shared_state.track
+            if curr_track[current_index] != -1:
+                track_index = curr_track[current_index]  # Get the correct track index
+                new_size_array[track_index] = 30  # Set track point size to 30
+
+            # Update the size array with the correct shape
+            layer.size = new_size_array
+            layer.border_width_is_relative = False  # Ensure the border width is absolute
+
+            # Ensure the new point is added with the correct data in shared_state
+            shared_state.DATA[current_index].append([data_coords[0], data_coords[1], 0, 0])
+
+            # Refresh the layer to display the new point
+            layer.refresh()
+
+            print(f"Added new point at data coordinates: {new_point}, with size: {point_size}")
+        else:
+            print("Clicked outside the image bounds. Point not added.")
 
 def setup_keybindings():
     """Set up key bindings for the viewer."""
