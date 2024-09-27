@@ -277,22 +277,38 @@ def overlay_points(frame_data):
             name='detections'
         )
 
-        # Function to switch focus to points_layer when clicked
-        '''def switch_to_points_layer(layer, event):
-            viewer.layers.selection.active = layer
-            print("Switched to points layer")
-
-        # Add the callback to switch focus to points layer
-        points_layer.mouse_drag_callbacks.append(switch_to_points_layer)'''
-
         # Add mouse click event handlers to the points layer
         points_layer.mouse_drag_callbacks.append(delete_detection)
-        points_layer.mouse_drag_callbacks.append(add_detection)  # Add the shift+click handler
-        points_layer.mouse_drag_callbacks.append(on_click)  # Add the shift+click handler
+        points_layer.mouse_drag_callbacks.append(add_detection)
+        points_layer.mouse_drag_callbacks.append(on_click)
 
+    # Create lines connecting consecutive detections in the track
+    track_points = []
+    for t in range(len(shared_state.track)):
+        track_idx = shared_state.track[t]
+        if track_idx != -1:
+            # Get the (y, x) coordinates for the tracked points
+            y, x = shared_state.DATA[t][track_idx][:2]
+            track_points.append([y, x])
+
+    # If we have consecutive track points, draw lines
+    if len(track_points) > 1:
+        # Create line segments between consecutive track points
+        lines = np.array([[track_points[i], track_points[i + 1]] for i in range(len(track_points) - 1)])
+        
+        # Add a Shapes layer for these lines
+        viewer.add_shapes(
+            lines,
+            shape_type='line',
+            edge_width=2,
+            edge_color='white',
+            name='track_lines',
+            face_color='transparent'
+        )
 
     # Initially, set the points layer as active
     viewer.layers.selection.active = points_layer
+
 
 def delete_detection(layer, event=None, use_key=False):
     """Delete detection or track detection based on right-click or 'D' key."""
