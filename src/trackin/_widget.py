@@ -292,28 +292,80 @@ def overlay_points(frame_data):
     # Initially, set the points layer as active
     viewer.layers.selection.active = points_layer
 
-def delete_detection(layer, event):
-    """Delete detection."""
-    if event.button == 2:  # Right-click
-        # Get the coordinates of the clicked point in world coordinates
-        click_position = event.position
+def delete_detection(layer, event=None, use_key=False):
+    """Delete detection or track detection based on right-click or 'D' key."""
+    clicked_index = None
 
-        # Find the index of the closest point to the click
-        clicked_index = layer.get_value(event.position, world=True)
+    # Determine the clicked index based on input type
+    if not use_key:  # Called from mouse event
+        if event.button == 2:  # Right-click
+            click_position = event.position
+            clicked_index = layer.get_value(click_position, world=True)
+            if clicked_index is None:
+                return  # No valid point was clicked, exit
+    else:  # Called using the 'D' key
+        curr_track = shared_state.track
+        if curr_track[current_index] != -1:
+            clicked_index = curr_track[current_index]  # Use the tracked index if available
+        else:
+            print("No detection found to delete with 'D' key.")
+            return
 
-        if clicked_index is not None:
-            # Retrieve the coordinates of the point at the clicked index
+    # If a valid point is found, determine if it's part of a track or a standard detection
+    if clicked_index is not None:
+        curr_track = shared_state.track
+        if curr_track[current_index] == clicked_index:
+            # Call the function for deleting track detection
+            delete_track_by_key(layer)
+        else:
+            # Handle deletion of standard detection
             point_coords = layer.data[clicked_index].copy()
-            curr_track = shared_state.track
-            if curr_track[current_index] == clicked_index:
-                delete_track_detection(layer)
-            
-            else:
-                #print(f"Clicked on overlay circle at index: {clicked_index}, coordinates: {point_coords}")
-                layer.data[clicked_index] = [-1000000, -1000000]
-                shared_state.DATA[current_index][clicked_index] = (-1000000, -1000000)
-                layer.refresh()
-            print(f'Removed point with coordinates {point_coords}')
+            layer.data[clicked_index] = [-1000000, -1000000]
+            shared_state.DATA[current_index][clicked_index] = (-1000000, -1000000)
+            layer.refresh()
+            print(f"Deleted detection at index {clicked_index} with coordinates {point_coords}")
+
+    # Mark the event as handled if called from a mouse event, otherwise mouse gets locked
+    if event is not None:
+        event.handled = True
+
+def delete_track_by_key(layer):
+    """Delete track detection using the 'D' key."""
+    delete_track_detection_core(layer, triggered_by="D key")
+
+def delete_track_by_mouse(layer, event):
+    """Delete track detection using right-click."""
+    delete_track_detection_core(layer, triggered_by="mouse")
+
+    # Mark the event as handled to stop further processing
+    event.handled = True
+    return  # Exit here to stop any further mouse events
+
+def delete_track_detection_core(layer, triggered_by):
+    """Core logic for deleting a track detection."""
+    curr_track = shared_state.track
+    if curr_track[current_index] != -1:
+        point_index = curr_track[current_index]
+        point_coords = layer.data[point_index].copy()
+
+        # Mark the track point as deleted
+        layer.data[point_index] = [-1000000, -1000000]
+        shared_state.DATA[current_index][point_index] = (-1000000, -1000000)
+
+        # Remove the node from the graph
+        node_to_remove = find_node_by_attributes(shared_state.G, time_point=current_index, idx=point_index)[0]
+        shared_state.G.remove_node(node_to_remove)
+
+        # Update the track state
+        shared_state.track[current_index] = -1
+        remove_track_node_event()
+        update_image()
+        layer.refresh()
+        print(f"Removed track point triggered by {triggered_by} with coordinates {point_coords}")
+
+    else:
+        print(f"No track point found to delete. Triggered by {triggered_by}")
+
 
 def add_detection(layer, event):
     """Handle shift + left mouse click events to add a new point within image bounds."""
@@ -359,34 +411,12 @@ def add_detection(layer, event):
         else:
             print("Clicked outside the image bounds. Point not added.")
 
-def delete_track_detection(layer):
-    """Delete the track detection triggered by the 'D' key."""
-    # Check if track contains detection in this frame
-    curr_track = shared_state.track
-    if curr_track[current_index] != -1:
-        point_index = curr_track[current_index]
-        point_coords = layer.data[point_index].copy()
-
-        # Mark the track point as deleted (set it to a large out-of-bounds value)
-        layer.data[point_index] = [-1000000, -1000000]
-        shared_state.DATA[current_index][point_index] = (-1000000, -1000000)
-
-        # Update the track for the current frame, marking it as deleted
-        shared_state.track[current_index] = -1  # This explicitly updates the track index to -1
-        node_to_remove = find_node_by_attributes(shared_state.G, time_point=current_index, idx=point_index)[0]
-        shared_state.G.remove_node(node_to_remove)
-        remove_track_node_event()
-        update_image()
-        layer.refresh()
-        print(f"Removed track point with coordinates {point_coords}")
-    else:
-        print("No track point found to delete in the current frame.")
 
 def setup_keybindings():
     """Set up key bindings for the viewer."""
     viewer.bind_key('Right', next_image)  # Right arrow key to move to the next image
     viewer.bind_key('Left', previous_image)  # Left arrow key to move to the previous image
-    viewer.bind_key('D', lambda event: delete_track_detection(viewer.layers.selection.active))  # Bind 'D' key to delete track detection
+    viewer.bind_key('D', lambda event: delete_detection(viewer.layers.selection.active, use_key=True))  # Bind 'D' key to delete track detection
 
 def trackin_main():
     """Main function to show the plugin interface."""
