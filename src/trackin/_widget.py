@@ -288,6 +288,8 @@ def overlay_points(frame_data):
         # Add mouse click event handlers to the points layer
         points_layer.mouse_drag_callbacks.append(delete_detection)
         points_layer.mouse_drag_callbacks.append(add_detection)  # Add the shift+click handler
+        points_layer.mouse_drag_callbacks.append(on_click)  # Add the shift+click handler
+
 
     # Initially, set the points layer as active
     viewer.layers.selection.active = points_layer
@@ -366,6 +368,13 @@ def delete_track_detection_core(layer, triggered_by):
     else:
         print(f"No track point found to delete. Triggered by {triggered_by}")
 
+def on_click(layer, event):
+    """Handle left mouse click and make clicked-on detection part of current track, while also going to next frame"""
+    if event.button == 1:
+        click_position = event.position
+        clicked_index = layer.get_value(click_position, world=True)
+        shared_state.track[current_index] = clicked_index
+        next_image()
 
 def add_detection(layer, event):
     """Handle shift + left mouse click events to add a new point within image bounds."""
