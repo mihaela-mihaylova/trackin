@@ -304,10 +304,15 @@ def delete_detection(layer, event):
         if clicked_index is not None:
             # Retrieve the coordinates of the point at the clicked index
             point_coords = layer.data[clicked_index].copy()
-            #print(f"Clicked on overlay circle at index: {clicked_index}, coordinates: {point_coords}")
-            layer.data[clicked_index] = [-1000000, -1000000]
-            shared_state.DATA[current_index][clicked_index] = (-1000000, -1000000)
-            layer.refresh()
+            curr_track = shared_state.track
+            if curr_track[current_index] == clicked_index:
+                delete_track_detection(layer)
+            
+            else:
+                #print(f"Clicked on overlay circle at index: {clicked_index}, coordinates: {point_coords}")
+                layer.data[clicked_index] = [-1000000, -1000000]
+                shared_state.DATA[current_index][clicked_index] = (-1000000, -1000000)
+                layer.refresh()
             print(f'Removed point with coordinates {point_coords}')
 
 def add_detection(layer, event):
