@@ -180,3 +180,22 @@ def generate_tracks(graph, detections, max_num=math.inf, debug = False):
                 current_track = current_track+1
                 graph.remove_nodes_from([n for n in path if graph.nodes[n]['type'] == 'D'])
             return tracks
+        
+
+def find_node_by_attributes(G, **attrs):
+    """
+    Find nodes in graph G with specific attribute values.
+
+    Parameters:
+    - G (networkx.Graph): The graph to search.
+    - **attrs: Key-value pairs of attributes to match.
+
+    Returns:
+    - list: A list of nodes that match the given attributes.
+    """
+    matching_nodes = []
+    for node, node_attrs in G.nodes(data=True):
+        if all(node_attrs.get(attr) == value for attr, value in attrs.items()):
+            matching_nodes.append(node)
+    
+    return matching_nodes

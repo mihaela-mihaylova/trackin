@@ -8,7 +8,7 @@ import pandas as pd
 import heapq
 from datetime import datetime
 from .tracking import generate_graph, generate_track, generate_tracks
-from ._widget import csv_loaded_event
+from ._widget import csv_loaded_event, remove_track_node_event
 from .shared_state import shared_state
 from napari.utils.notifications import show_info
 from napari.utils.events import EventEmitter
@@ -307,7 +307,7 @@ def track():
     send_track()
 	
 csv_loaded_event.connect(track)
-#remove_track_node.connect(track)
+remove_track_node_event.connect(track)
 
 '''@app.route('/frame/<path:path>', methods=['GET'])
 def frame(path):

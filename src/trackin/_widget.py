@@ -9,6 +9,7 @@ import numpy as np
 from napari.utils.events import EventEmitter
 from .shared_state import shared_state
 from datetime import datetime
+from .tracking import find_node_by_attributes
 
 viewer = None
 current_index = 0
@@ -22,6 +23,8 @@ container = None  # Global reference to the container
 # EVENT EMITTERS
 csv_loaded_event = EventEmitter(source=None, type_name='csv_loaded')
 data_updated_event = EventEmitter(source=None, type_name='data_updated')
+remove_track_node_event = EventEmitter(source=None, type_name='remove_track_node')
+
 
 def initialize_viewer(napari_viewer):
     """Initialize the Napari viewer object."""
@@ -356,16 +359,19 @@ def delete_track_detection(layer):
     # Check if track contains detection in this frame
     curr_track = shared_state.track
     if curr_track[current_index] != -1:
-        track_index = curr_track[current_index]
-        point_coords = layer.data[track_index].copy()
+        point_index = curr_track[current_index]
+        point_coords = layer.data[point_index].copy()
 
         # Mark the track point as deleted (set it to a large out-of-bounds value)
-        layer.data[track_index] = [-1000000, -1000000]
-        shared_state.DATA[current_index][track_index] = (-1000000, -1000000)
+        layer.data[point_index] = [-1000000, -1000000]
+        shared_state.DATA[current_index][point_index] = (-1000000, -1000000)
 
         # Update the track for the current frame, marking it as deleted
         shared_state.track[current_index] = -1  # This explicitly updates the track index to -1
-
+        node_to_remove = find_node_by_attributes(shared_state.G, time_point=current_index, idx=point_index)[0]
+        shared_state.G.remove_node(node_to_remove)
+        remove_track_node_event()
+        update_image()
         layer.refresh()
         print(f"Removed track point with coordinates {point_coords}")
     else:
