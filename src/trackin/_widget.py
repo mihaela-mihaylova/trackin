@@ -396,12 +396,20 @@ def delete_track_detection_core(layer, triggered_by):
         print(f"No track point found to delete. Triggered by {triggered_by}")
 
 def on_click(layer, event):
-    """Handle left mouse click and make clicked-on detection part of current track, while also going to next frame"""
-    if event.button == 1:
+    """Handle left mouse click and make clicked-on detection part of current track only if clicked directly on a point."""
+    if event.button == 1:  # Check for left mouse button click
         click_position = event.position
+
+        # Check if the click is on a valid point using get_value() method
         clicked_index = layer.get_value(click_position, world=True)
-        shared_state.track[current_index] = clicked_index
-        next_image()
+
+        if clicked_index is not None and clicked_index >= 0:
+            # If a valid point was clicked, update the track and go to the next image
+            shared_state.track[current_index] = clicked_index
+            next_image()
+        else:
+            print("Clicked outside of any detection point.")
+
 
 def add_detection(layer, event):
     """Handle shift + left mouse click events to add a new point within image bounds."""
