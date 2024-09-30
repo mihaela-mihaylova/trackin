@@ -109,35 +109,28 @@ def load_csv():
     global csv_loaded, csv_data
     """Open a dialog to select a CSV file and load its data."""
     
-    # Check if images are loaded
     if not images_loaded:
-        # Show a popup window informing the user that images should be loaded first
-        msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Information)
-        msg_box.setWindowTitle("Load Images First")
-        msg_box.setText("Please load the images before loading the CSV file.")
-        msg_box.setStandardButtons(QMessageBox.Ok)
-        msg_box.exec_()
-        return  # Exit the function without proceeding
+        QMessageBox.information(None, "Load Images First", "Please load the images before loading the CSV file.")
+        return
 
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
-        #try:
         csv_data = pd.read_csv(csv_path).astype(int)
-        # Check if displacement columns exist, if not, add them with value 0
         csv_data = check_and_add_displ_cols(csv_data)
         shared_state.TRACKED = 'track_no' in csv_data.columns
-        # Rearrange columns in df (in case we have tframe, y, x, track_no)
         if shared_state.TRACKED:
             csv_data = csv_data[['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']]
         folder_to_save = os.path.dirname(csv_path)
-        shared_state.DATA = generate_positions_list(csv_data, folder_to_save)  # Store the returned positions list in DATA
+        shared_state.DATA = generate_positions_list(csv_data, folder_to_save)  
         
         csv_loaded = True
-        # Emit event to trigger track function in utils
-        csv_loaded_event()  
+        csv_loaded_event()  # Trigger CSV loaded event
+
+        # Compute track lines once when CSV is loaded
+        compute_track_lines()
 
         check_and_update_image()
+
 
 def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
@@ -212,38 +205,31 @@ def update_image():
         current_zoom = viewer.camera.zoom
         current_center = viewer.camera.center
 
-        # Clear previous layers and add the current image with the white border
-        viewer.layers.clear()
-        viewer.add_image(bordered_image, name=os.path.basename(image_files[current_index]))
+        if 'Image' in viewer.layers:
+            # Just update the data of the existing image layer
+            viewer.layers['Image'].data = images[current_index]
+        else:
+            # Create a new image layer if it doesn't exist
+            viewer.add_image(images[current_index], name='Image')
 
         # Restore the camera zoom and center position
         viewer.camera.zoom = current_zoom
         viewer.camera.center = current_center
 
-        # Ensure DATA and csv_data are loaded
-        if csv_data is not None and shared_state.DATA is not None:
-            # Get the frame number from the current image file name
-            frame_number = int(os.path.splitext(os.path.basename(image_files[current_index]))[0])
-            
-            # Ensure the frame number is within the range of DATA
-            if 0 <= frame_number < len(shared_state.DATA):
-                frame_data = shared_state.DATA[frame_number]  # Access the corresponding frame data from the list
-                # Dynamically adjust column names based on whether `track_no` is present
-                if not shared_state.TRACKED:
-                    columns = ['y', 'x', 'displ_y', 'displ_x']  
-                else:
-                    columns = ['y', 'x', 'displ_y', 'displ_x', 'track_no']
-                   
-                # Create the DataFrame with the appropriate number of columns
+    # Ensure DATA and csv_data are loaded, then overlay points and lines
+    if csv_data is not None and shared_state.DATA is not None:
+        # Get the frame number from the current image file name
+        frame_number = int(os.path.splitext(os.path.basename(image_files[current_index]))[0])
+        # Ensure the frame number is within the range of DATA
+        if 0 <= frame_number < len(shared_state.DATA):
+            frame_data = shared_state.DATA[frame_number]
+            if frame_data:  # Only overlay points if data is present
+                columns = ['y', 'x', 'displ_y', 'displ_x'] if not shared_state.TRACKED else ['y', 'x', 'displ_y', 'displ_x', 'track_no']
                 overlay_points(pd.DataFrame(frame_data, columns=columns))
 
-
-
 def overlay_points(frame_data):
-    """Overlay white circles on the image for each (x, y) in the frame data, with special styling for the track point."""
+    """Overlay circles on the image for each (x, y) in the frame data, with styling for the track point, and draw lines connecting them."""
     global viewer
-
-    print("Overlay function called")  # Debugging to ensure the function is called
 
     if frame_data.empty:
         print("No frame data provided")
@@ -263,52 +249,77 @@ def overlay_points(frame_data):
         track_index = curr_track[current_index]
         border_colors[track_index] = 'yellow'  # Highlight the track point in yellow
         sizes[track_index] = 30  # Increase the size of the track point
-        border_widths[track_index] = 3  # Ensure it's between 0 and 1 for relative mode
+        border_widths[track_index] = 3  # Thicker border for track point
 
-    if points.size > 0:
-        # Create the points layer with custom attributes for the track point
+    # Check if 'detections' layer already exists, if so update it, otherwise create a new one
+    if 'detections' in viewer.layers:
+        points_layer = viewer.layers['detections']
+        points_layer.data = points
+        points_layer.size = sizes
+        points_layer.border_color = border_colors
+        points_layer.border_width = border_widths
+    else:
+        # Create the points layer
         points_layer = viewer.add_points(
             points,
-            size=sizes,  # Apply individual sizes
+            size=sizes,
             face_color='transparent',
-            border_color=border_colors,  # Apply individual border colors
-            border_width=border_widths,  # Apply individual border widths
-            border_width_is_relative=False,  # Set to relative mode
+            border_color=border_colors,
+            border_width=border_widths,
+            border_width_is_relative=False,
             name='detections'
         )
-
-        # Add mouse click event handlers to the points layer
+        # Attach mouse event handlers
         points_layer.mouse_drag_callbacks.append(delete_detection)
         points_layer.mouse_drag_callbacks.append(add_detection)
         points_layer.mouse_drag_callbacks.append(on_click)
 
-    # Create lines connecting consecutive detections in the track
+    # Construct and update track lines
     track_points = []
     for t in range(len(shared_state.track)):
         track_idx = shared_state.track[t]
         if track_idx != -1:
-            # Get the (y, x) coordinates for the tracked points
-            y, x = shared_state.DATA[t][track_idx][:2]
+            y, x = shared_state.DATA[t][track_idx][:2]  # Get (y, x) coordinates
             track_points.append([y, x])
 
-    # If we have consecutive track points, draw lines
+    # If there are at least two points, create line segments
     if len(track_points) > 1:
-        # Create line segments between consecutive track points
         lines = np.array([[track_points[i], track_points[i + 1]] for i in range(len(track_points) - 1)])
-        
-        # Add a Shapes layer for these lines
-        viewer.add_shapes(
-            lines,
-            shape_type='line',
-            edge_width=2,
-            edge_color='white',
-            name='track_lines',
-            face_color='transparent'
-        )
+        # Check if 'track_lines' layer already exists, if so update it, otherwise create a new one
+        if 'track_lines' in viewer.layers:
+            viewer.layers['track_lines'].data = lines
+        else:
+            # Create the shapes layer for the track lines
+            viewer.add_shapes(
+                lines,
+                shape_type='line',
+                edge_width=2,
+                edge_color='white',
+                name='track_lines',
+                face_color='transparent'
+            )
 
-    # Initially, set the points layer as active
+    # Set the points layer as active
     viewer.layers.selection.active = points_layer
 
+def compute_track_lines():
+    """Compute line segments connecting consecutive points in the track."""
+    track_points = []
+    for t in range(len(shared_state.track)):
+        track_idx = shared_state.track[t]
+        if track_idx is not None and track_idx != -1:
+            # Ensure track index is within bounds of shared_state.DATA[t]
+            if 0 <= track_idx < len(shared_state.DATA[t]):
+                y, x = shared_state.DATA[t][track_idx][:2]
+                track_points.append([y, x])
+
+    # Create line segments only if there are at least two points in the track
+    if len(track_points) > 1:
+        shared_state.track_lines = np.array(
+            [[track_points[i], track_points[i + 1]] for i in range(len(track_points) - 1)]
+        )
+    else:
+        shared_state.track_lines = None  # No valid lines to draw
 
 def delete_detection(layer, event=None, use_key=False):
     """Delete detection or track detection based on right-click or 'D' key."""
