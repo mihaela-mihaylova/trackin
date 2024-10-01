@@ -3,7 +3,7 @@ import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
 from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
 from napari.utils.events import EventEmitter
@@ -33,7 +33,6 @@ def initialize_viewer(napari_viewer):
 
     # Set up key bindings for the viewer
     setup_keybindings()
-
 
  # adds these displacement columns with value 0, in case they are not present
 def check_and_add_displ_cols(df):
@@ -293,7 +292,7 @@ def overlay_points(frame_data):
             viewer.add_shapes(
                 lines,
                 shape_type='line',
-                edge_width=2,
+                edge_width=1,
                 edge_color='white',
                 name='track_lines',
                 face_color='transparent'
@@ -397,6 +396,12 @@ def delete_track_detection_core(layer, triggered_by):
 
 def on_click(layer, event):
     """Handle left mouse click and make clicked-on detection part of current track only if clicked directly on a point."""
+    global new_point_added
+
+    if new_point_added:
+        # Ignore the click if a new point was just added
+        return
+
     if event.button == 1:  # Check for left mouse button click
         click_position = event.position
 
@@ -411,8 +416,12 @@ def on_click(layer, event):
             print("Clicked outside of any detection point.")
 
 
+new_point_added = False
+
 def add_detection(layer, event):
     """Handle shift + left mouse click events to add a new point within image bounds."""
+    global new_point_added
+
     if event.button == 1 and 'Shift' in event.modifiers:
         # Convert world coordinates to data coordinates (pixel coordinates)
         data_coords = layer.world_to_data(event.position)
@@ -431,7 +440,7 @@ def add_detection(layer, event):
             # Determine the default point size (20) or get the minimum size of existing points
             if len(layer.size) > 0:
                 point_size = 20
-           
+
             # Create a new size array matching the updated data length
             new_size_array = np.full((len(layer.data),), point_size)
 
@@ -452,8 +461,19 @@ def add_detection(layer, event):
             layer.refresh()
 
             print(f"Added new point at data coordinates: {new_point}, with size: {point_size}")
+
+            # Set the flag to indicate a new point was added
+            new_point_added = True
+
+            # Use a QTimer to reset the flag after 200 milliseconds
+            QTimer.singleShot(200, reset_new_point_flag)
         else:
             print("Clicked outside the image bounds. Point not added.")
+
+def reset_new_point_flag():
+    """Reset the flag indicating a new point was added."""
+    global new_point_added
+    new_point_added = False
 
 
 def setup_keybindings():
@@ -472,12 +492,30 @@ def trackin_main():
     layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
     layout.addWidget(load_csv.native)
     layout.addWidget(image_slider.native)  # Add the slider widget
-
+    
     # Set layout to the container
     container.setLayout(layout)
 
     # Set focus policy and initially focus the container
     container.setFocusPolicy(Qt.StrongFocus)
     container.setFocus()
+    viewer.window.qt_viewer.dockLayerList.setVisible(False)
+    viewer.window.qt_viewer.dockLayerControls.setVisible(False)
 
     return container
+
+
+'''def print_all_widgets(viewer):
+    """Print the entire Qt widget hierarchy of the viewer window."""
+    from qtpy.QtWidgets import QWidget
+
+    print("Listing all widgets in the Napari viewer:")
+
+    def print_widget_tree(widget, indent=0):
+        """Recursively print widget hierarchy."""
+        print("  " * indent + f"{widget.objectName()} ({widget.__class__.__name__})")
+        for child in widget.children():
+            if isinstance(child, QWidget):
+                print_widget_tree(child, indent + 1)
+
+    print_widget_tree(viewer.window._qt_window)'''
