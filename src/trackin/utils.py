@@ -8,10 +8,11 @@ import pandas as pd
 import heapq
 from datetime import datetime
 from .tracking import generate_graph, generate_track, generate_tracks
-from ._widget import csv_loaded_event, remove_track_node_event
+from ._widget import csv_loaded_event, remove_track_node_event, accept_track_event
 from .shared_state import shared_state
 from napari.utils.notifications import show_info
 from napari.utils.events import EventEmitter
+import os
 
 
 '''def safeindex(l,i):
@@ -43,31 +44,40 @@ def send_track():
 	return dict(npos=G.number_of_nodes()-2-2*(len(DATA)-1),
 		nconn=G.number_of_edges()-2*(len(DATA)))'''
 
-'''@app.route('/accept-track/', methods=['POST'])
 def accept_track():
-	global N_TRACKS
-	N_TRACKS += 1
-	track = track_to_posarray( generate_track( G ) )
-	f = open("session.csv", "a")
-	for i,p in enumerate(track):
-		if p >= 0:
-			f.write(f"{i},{DATA[i][p][0]},{DATA[i][p][1]},{N_TRACKS}\n")
-			# assign nonsense values so that it's clear that the points from the accepted track have been deleted
-			DATA[i][p] = (-1000000, -1000000)
-	f.close()
-	# this is used to remove the nodes used for the track
-	generate_tracks( G, DATA, max_num=1, debug=False )
+    shared_state.N_TRACKS += 1
+    track = shared_state.track
+    session_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)
+    
+    # Determine if header should be added based on file existence and size
+    add_header = not os.path.exists(session_file_path) or os.path.getsize(session_file_path) == 0
+    
+    with open(session_file_path, "a") as f:
+        if add_header:
+            f.write("tframe,y,x,displ_y,displ_x,track_no\n")  # Write the header row
+        for i, p in enumerate(track):
+            if p >= 0:
+                f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]}, {shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{shared_state.N_TRACKS}\n")
+                # Assign nonsense values so that it's clear that the points from the accepted track have been deleted
+                shared_state.DATA[i][p] = (-1000000, -1000000)
+                # remove nodes from track
+                shared_state.G.remove_node(f'D_{i}_{p}')
+    # this is used to remove the nodes used for the track
+    generate_tracks(shared_state.G, shared_state.DATA, max_num=1, debug=False)
 
-	# save up-to-date version of DATA
-	g = open(UPDATED_DATA_FILE, "w")
-	g.write('tframe,y,x,displ_y,displ_x\n')
-	for i,_ in enumerate(DATA):
-		for j,_ in enumerate(DATA[i]):
-			# ensure that the detections included in the accepted track are removed from saved version
-			if DATA[i][j][0]!=-1000000 and DATA[i][j][1]!=-1000000:
-				g.write(f"{i},{DATA[i][j][0]},{DATA[i][j][1]},{DATA[i][j][2]},{DATA[i][j][3]}\n")
-	g.close()
-	return send_track()'''
+    # Save the up-to-date version of DATA
+    updated_data_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE)
+    with open(updated_data_file_path, "w") as g:
+        g.write('tframe,y,x,displ_y,displ_x\n')
+        for i, _ in enumerate(shared_state.DATA):
+            for j, _ in enumerate(shared_state.DATA[i]):
+                # Ensure that the detections included in the accepted track are removed from the saved version
+                if shared_state.DATA[i][j][0] != -1000000 and shared_state.DATA[i][j][1] != -1000000:
+                    g.write(f"{i},{shared_state.DATA[i][j][0]},{shared_state.DATA[i][j][1]},{shared_state.DATA[i][j][2]},{shared_state.DATA[i][j][3]}\n")
+    
+    return send_track()
+
+accept_track_event.connect(accept_track)
 
 '''@app.route('/delete-detection/', methods=['POST'])
 def delete_detection():

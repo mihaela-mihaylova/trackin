@@ -9,7 +9,7 @@ import numpy as np
 from napari.utils.events import EventEmitter
 from .shared_state import shared_state
 from datetime import datetime
-from .tracking import find_node_by_attributes
+from .tracking import find_node_by_attributes, add_node_with_dummy_edges
 
 viewer = None
 current_index = 0
@@ -24,7 +24,7 @@ container = None  # Global reference to the container
 csv_loaded_event = EventEmitter(source=None, type_name='csv_loaded')
 data_updated_event = EventEmitter(source=None, type_name='data_updated')
 remove_track_node_event = EventEmitter(source=None, type_name='remove_track_node')
-
+accept_track_event = EventEmitter(source=None, type_name='accept_track')
 
 def initialize_viewer(napari_viewer):
     """Initialize the Napari viewer object."""
@@ -54,13 +54,10 @@ def generate_positions_list(df, folder_to_save):
 
         shared_state.DATA.append(positions)
 
-    # generate the current timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
     # initialize the session.csv file, where tracks are saved
-    with open(os.path.join(folder_to_save, f"session_{timestamp}.csv"), "w") as f:
+    with open(os.path.join(folder_to_save, f"{shared_state.SESSION_FILE}"), "w") as f:
         f.write("")
-    #print(DATA)
+    shared_state.NUM_DET_PER_FRAME = [len(sublist) for sublist in shared_state.DATA]
     return shared_state.DATA 
 
 def load_images_from_folder(folder_path):
@@ -114,13 +111,21 @@ def load_csv():
 
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
+        csv_filename = csv_path.split('/')[-1].split('.')[0]
+        # generate the current timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # name for file where generated tracks are saved
+        shared_state.SESSION_FILE = f'track_session_{csv_filename}_{timestamp}.csv'
+        # name for file where leftover positions are preserved
+        shared_state.UPDATED_DATA_FILE = f'upd_{csv_filename}_{timestamp}.csv'
+
         csv_data = pd.read_csv(csv_path).astype(int)
         csv_data = check_and_add_displ_cols(csv_data)
         shared_state.TRACKED = 'track_no' in csv_data.columns
         if shared_state.TRACKED:
             csv_data = csv_data[['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']]
-        folder_to_save = os.path.dirname(csv_path)
-        shared_state.DATA = generate_positions_list(csv_data, folder_to_save)  
+        shared_state.csv_folder_to_save = os.path.dirname(csv_path)
+        shared_state.DATA = generate_positions_list(csv_data, shared_state.csv_folder_to_save)  
         
         csv_loaded = True
         csv_loaded_event()  # Trigger CSV loaded event
@@ -352,6 +357,11 @@ def delete_detection(layer, event=None, use_key=False):
             shared_state.DATA[current_index][clicked_index] = (-1000000, -1000000)
             layer.refresh()
             print(f"Deleted detection at index {clicked_index} with coordinates {point_coords}")
+        # remove node
+        shared_state.G.remove_node(f'D_{current_index}_{clicked_index}')
+        print(f'Node {f'D_{current_index}_{clicked_index}'} is removed.')
+        # save up-to-date version of DATA
+        write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
 
     # Mark the event as handled if called from a mouse event, otherwise mouse gets locked
     if event is not None:
@@ -432,7 +442,7 @@ def add_detection(layer, event):
         # Ensure the click is within the image bounds
         if (0 <= data_coords[0] < image_shape[0]) and (0 <= data_coords[1] < image_shape[1]):
             # Append the new point to the layer's data in data coordinates (pixels)
-            new_point = [data_coords[0], data_coords[1]]  # [y, x] format
+            new_point = [int(data_coords[0]), int(data_coords[1])]  # [y, x] format
 
             # Add the new point to the existing points layer data
             layer.data = np.vstack([layer.data, new_point])
@@ -455,12 +465,27 @@ def add_detection(layer, event):
             layer.border_width_is_relative = False  # Ensure the border width is absolute
 
             # Ensure the new point is added with the correct data in shared_state
-            shared_state.DATA[current_index].append([data_coords[0], data_coords[1], 0, 0])
+            shared_state.DATA[current_index].append([int(data_coords[0]), int(data_coords[1]), 0, 0])
+            add_node_with_dummy_edges(node=f'D_{current_index}_{shared_state.NUM_DET_PER_FRAME[current_index]}',
+                                      time_point=current_index,
+                                      idx=shared_state.NUM_DET_PER_FRAME[current_index],
+                                      y=int(data_coords[0]),
+                                      x=int(data_coords[1]),
+                                      displ_y=0,
+                                      displ_x=0,
+                                      G=shared_state.G,
+                                      highest_frame_id=len(shared_state.DATA)-1,
+                                      max_score=shared_state.MAX_SCORE)
+            print(f'Added node D_{current_index}_{shared_state.NUM_DET_PER_FRAME[current_index]}.')
+            shared_state.NUM_DET_PER_FRAME[current_index] += 1
 
             # Refresh the layer to display the new point
             layer.refresh()
 
             print(f"Added new point at data coordinates: {new_point}, with size: {point_size}")
+
+            # save up-to-date version of DATA
+            write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
 
             # Set the flag to indicate a new point was added
             new_point_added = True
@@ -469,6 +494,10 @@ def add_detection(layer, event):
             QTimer.singleShot(200, reset_new_point_flag)
         else:
             print("Clicked outside the image bounds. Point not added.")
+
+def acceptTrack(event=None):
+    accept_track_event()
+
 
 def reset_new_point_flag():
     """Reset the flag indicating a new point was added."""
@@ -481,6 +510,7 @@ def setup_keybindings():
     viewer.bind_key('Right', next_image)  # Right arrow key to move to the next image
     viewer.bind_key('Left', previous_image)  # Left arrow key to move to the previous image
     viewer.bind_key('D', lambda event: delete_detection(viewer.layers.selection.active, use_key=True))  # Bind 'D' key to delete track detection
+    viewer.bind_key('A', lambda event: acceptTrack)  # Bind 'A' key to accept track
 
 def trackin_main():
     """Main function to show the plugin interface."""
@@ -519,3 +549,16 @@ def trackin_main():
                 print_widget_tree(child, indent + 1)
 
     print_widget_tree(viewer.window._qt_window)'''
+
+
+def write_updated_detections_to_file(data, updated_data_file, csv_path):
+    # save up-to-date version of DATA
+
+    f = open(os.path.join(csv_path, updated_data_file), "w")
+    f.write('tframe,y,x,displ_y,displ_x\n')
+    for i,_ in enumerate(data):
+        for j,_ in enumerate(data[i]):
+            # ensure that the detection that is deleted is not saved
+            if (data[i][j][0]!=-1000000 and data[i][j][1]!=-1000000):
+                f.write(f"{i},{data[i][j][0]},{data[i][j][1]},{data[i][j][2]},{data[i][j][3]}\n")
+    f.close()
