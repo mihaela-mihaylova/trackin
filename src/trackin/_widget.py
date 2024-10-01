@@ -359,7 +359,7 @@ def delete_detection(layer, event=None, use_key=False):
             print(f"Deleted detection at index {clicked_index} with coordinates {point_coords}")
         # remove node
         shared_state.G.remove_node(f'D_{current_index}_{clicked_index}')
-        print(f'Node {f'D_{current_index}_{clicked_index}'} is removed.')
+        print(f'Node D_{current_index}_{clicked_index} is removed.')
         # save up-to-date version of DATA
         write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
 
