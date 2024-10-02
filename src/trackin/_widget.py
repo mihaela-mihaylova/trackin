@@ -12,7 +12,6 @@ from datetime import datetime
 from .tracking import find_node_by_attributes, add_node_with_dummy_edges
 
 viewer = None
-current_index = 0
 images = []
 image_files = []
 csv_data = None
@@ -25,6 +24,9 @@ csv_loaded_event = EventEmitter(source=None, type_name='csv_loaded')
 data_updated_event = EventEmitter(source=None, type_name='data_updated')
 remove_track_node_event = EventEmitter(source=None, type_name='remove_track_node')
 accept_track_event = EventEmitter(source=None, type_name='accept_track')
+delete_segment_event = EventEmitter(source=None, type_name='delete_segment')
+save_segment_event = EventEmitter(source=None, type_name='save_segment')
+delete_all_connections_event = EventEmitter(source=None, type_name='delete_all_connections')
 
 def initialize_viewer(napari_viewer):
     """Initialize the Napari viewer object."""
@@ -88,15 +90,15 @@ def check_and_update_image():
 @magicgui(call_button="Choose Folder", auto_call=True)
 def choose_folder():
     """Open a dialog to select a folder and load images from it."""
-    global images, image_files, current_index, viewer, images_loaded
+    global images, image_files, viewer, images_loaded
     folder_path = QFileDialog.getExistingDirectory(None, "Select Folder with Images")
     if folder_path:
         images, image_files = load_images_from_folder(folder_path)
-        current_index = 0
+        shared_state.current_index = 0
         images_loaded = True
         if images:
             viewer.layers.clear()
-            viewer.add_image(images[current_index], name=os.path.basename(image_files[current_index]))
+            viewer.add_image(images[shared_state.current_index], name=os.path.basename(image_files[shared_state.current_index]))
             check_and_update_image()
             update_slider_max()
 
@@ -138,11 +140,11 @@ def load_csv():
 
 def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
-    global current_index, viewer, container
+    global viewer, container
     if images:
-        current_index = (current_index + 1) % len(images)
+        shared_state.current_index = (shared_state.current_index + 1) % len(images)
         update_image()
-        image_slider.image_index.value = current_index  # Sync slider value
+        image_slider.image_index.value = shared_state.current_index  # Sync slider value
     
     # Refocus the container after key press
     if container:
@@ -150,11 +152,11 @@ def next_image(event=None):
 
 def previous_image(event=None):
     """Display the previous image in the sequence and overlay CSV data."""
-    global current_index, viewer, container
+    global viewer, container
     if images:
-        current_index = (current_index - 1) % len(images)
+        shared_state.current_index = (shared_state.current_index - 1) % len(images)
         update_image()
-        image_slider.image_index.value = current_index  # Sync slider value
+        image_slider.image_index.value = shared_state.current_index  # Sync slider value
     
     # Refocus the container after key press
     if container:
@@ -163,9 +165,9 @@ def previous_image(event=None):
 @magicgui(image_index={"widget_type": "Slider", "min": 0, "max": 0, "step": 1, "label": "Frame"}, auto_call=True)
 def image_slider(image_index: int = 0):
     """Update the displayed image based on the slider value."""
-    global current_index, viewer, container
-    if image_index != current_index:
-        current_index = image_index
+    global viewer, container
+    if image_index != shared_state.current_index:
+        shared_state.current_index = image_index
         update_image()
         # Refocus the container after slider change
         if container:
@@ -175,7 +177,7 @@ def update_slider_max():
     """Update the maximum value of the slider based on the number of images."""
     if images:
         image_slider.image_index.max = len(images) - 1
-        image_slider.image_index.value = current_index
+        image_slider.image_index.value = shared_state.current_index
     else:
         image_slider.image_index.max = 0
         image_slider.image_index.value = 0
@@ -203,7 +205,7 @@ def update_image():
     global viewer
     if images:
         # Get the current image and add a white border to it
-        bordered_image = add_white_border(images[current_index], border_size=2)
+        bordered_image = add_white_border(images[shared_state.current_index], border_size=2)
 
         # Store the current camera settings (zoom and center)
         current_zoom = viewer.camera.zoom
@@ -211,10 +213,10 @@ def update_image():
 
         if 'Image' in viewer.layers:
             # Just update the data of the existing image layer
-            viewer.layers['Image'].data = images[current_index]
+            viewer.layers['Image'].data = images[shared_state.current_index]
         else:
             # Create a new image layer if it doesn't exist
-            viewer.add_image(images[current_index], name='Image')
+            viewer.add_image(images[shared_state.current_index], name='Image')
 
         # Restore the camera zoom and center position
         viewer.camera.zoom = current_zoom
@@ -223,7 +225,7 @@ def update_image():
     # Ensure DATA and csv_data are loaded, then overlay points and lines
     if csv_data is not None and shared_state.DATA is not None:
         # Get the frame number from the current image file name
-        frame_number = int(os.path.splitext(os.path.basename(image_files[current_index]))[0])
+        frame_number = int(os.path.splitext(os.path.basename(image_files[shared_state.current_index]))[0])
         # Ensure the frame number is within the range of DATA
         if 0 <= frame_number < len(shared_state.DATA):
             frame_data = shared_state.DATA[frame_number]
@@ -249,8 +251,8 @@ def overlay_points(frame_data):
     border_widths = [1] * len(points)  # Default border width
 
     # Check if track contains detection in this frame and apply custom styles for the track point
-    if curr_track[current_index] != -1:
-        track_index = curr_track[current_index]
+    if curr_track[shared_state.current_index] != -1:
+        track_index = curr_track[shared_state.current_index]
         border_colors[track_index] = 'yellow'  # Highlight the track point in yellow
         sizes[track_index] = 30  # Increase the size of the track point
         border_widths[track_index] = 3  # Thicker border for track point
@@ -329,80 +331,45 @@ def delete_detection(layer, event=None, use_key=False):
     """Delete detection or track detection based on right-click or 'D' key."""
     clicked_index = None
 
-    # Determine the clicked index based on input type
-    if not use_key:  # Called from mouse event
-        if event.button == 2:  # Right-click
+    # Determine the index of the clicked point based on the input type (mouse or key)
+    if not use_key:
+        if event and event.button == 2:  # Right-click
             click_position = event.position
             clicked_index = layer.get_value(click_position, world=True)
             if clicked_index is None:
                 return  # No valid point was clicked, exit
-    else:  # Called using the 'D' key
+    else:
         curr_track = shared_state.track
-        if curr_track[current_index] != -1:
-            clicked_index = curr_track[current_index]  # Use the tracked index if available
+        if curr_track[shared_state.current_index] != -1:
+            clicked_index = curr_track[shared_state.current_index]  # Use the tracked index if available
         else:
             print("No detection found to delete with 'D' key.")
             return
 
-    # If a valid point is found, determine if it's part of a track or a standard detection
+    # Proceed if a valid point is found
     if clicked_index is not None:
-        curr_track = shared_state.track
-        if curr_track[current_index] == clicked_index:
-            # Call the function for deleting track detection
-            delete_track_by_key(layer)
-        else:
-            # Handle deletion of standard detection
-            point_coords = layer.data[clicked_index].copy()
-            layer.data[clicked_index] = [-1000000, -1000000]
-            shared_state.DATA[current_index][clicked_index] = (-1000000, -1000000)
-            layer.refresh()
-            print(f"Deleted detection at index {clicked_index} with coordinates {point_coords}")
-        # remove node
-        shared_state.G.remove_node(f'D_{current_index}_{clicked_index}')
-        print(f'Node D_{current_index}_{clicked_index} is removed.')
-        # save up-to-date version of DATA
-        write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
+        # Update layer and data positions to reflect the fact that the point is deleted
+        point_coords = layer.data[clicked_index].copy()
+        layer.data[clicked_index] = [-1000000, -1000000]
+        shared_state.DATA[shared_state.current_index][clicked_index] = (-1000000, -1000000)
+        node_name = f'D_{shared_state.current_index}_{clicked_index}'
+        shared_state.G.remove_node(node_name)
 
-    # Mark the event as handled if called from a mouse event, otherwise mouse gets locked
+        # If the clicked index is part of the current track, update the track state
+        if shared_state.track[shared_state.current_index] == clicked_index:
+            # Update the track state
+            shared_state.track[shared_state.current_index] = -1
+            remove_track_node_event()
+            update_image()
+
+        # Refresh the layer to update the visual display
+        layer.refresh()
+    print(f'Removed node {node_name} with positions {point_coords}.')
+
+    # Mark the event as handled if called from a mouse event
     if event is not None:
         event.handled = True
 
-def delete_track_by_key(layer):
-    """Delete track detection using the 'D' key."""
-    delete_track_detection_core(layer, triggered_by="D key")
-
-def delete_track_by_mouse(layer, event):
-    """Delete track detection using right-click."""
-    delete_track_detection_core(layer, triggered_by="mouse")
-
-    # Mark the event as handled to stop further processing
-    event.handled = True
-    return  # Exit here to stop any further mouse events
-
-def delete_track_detection_core(layer, triggered_by):
-    """Core logic for deleting a track detection."""
-    curr_track = shared_state.track
-    if curr_track[current_index] != -1:
-        point_index = curr_track[current_index]
-        point_coords = layer.data[point_index].copy()
-
-        # Mark the track point as deleted
-        layer.data[point_index] = [-1000000, -1000000]
-        shared_state.DATA[current_index][point_index] = (-1000000, -1000000)
-
-        # Remove the node from the graph
-        node_to_remove = find_node_by_attributes(shared_state.G, time_point=current_index, idx=point_index)[0]
-        shared_state.G.remove_node(node_to_remove)
-
-        # Update the track state
-        shared_state.track[current_index] = -1
-        remove_track_node_event()
-        update_image()
-        layer.refresh()
-        print(f"Removed track point triggered by {triggered_by} with coordinates {point_coords}")
-
-    else:
-        print(f"No track point found to delete. Triggered by {triggered_by}")
 
 def on_click(layer, event):
     """Handle left mouse click and make clicked-on detection part of current track only if clicked directly on a point."""
@@ -420,7 +387,7 @@ def on_click(layer, event):
 
         if clicked_index is not None and clicked_index >= 0:
             # If a valid point was clicked, update the track and go to the next image
-            shared_state.track[current_index] = clicked_index
+            shared_state.track[shared_state.current_index] = clicked_index
             next_image()
         else:
             print("Clicked outside of any detection point.")
@@ -437,7 +404,7 @@ def add_detection(layer, event):
         data_coords = layer.world_to_data(event.position)
 
         # Get the dimensions of the currently displayed image
-        image_shape = images[current_index].shape  # This gets (height, width) for the image
+        image_shape = images[shared_state.current_index].shape  # This gets (height, width) for the image
 
         # Ensure the click is within the image bounds
         if (0 <= data_coords[0] < image_shape[0]) and (0 <= data_coords[1] < image_shape[1]):
@@ -456,8 +423,8 @@ def add_detection(layer, event):
 
             # Ensure the size of the track detection in the current frame is changed to 30
             curr_track = shared_state.track
-            if curr_track[current_index] != -1:
-                track_index = curr_track[current_index]  # Get the correct track index
+            if curr_track[shared_state.current_index] != -1:
+                track_index = curr_track[shared_state.current_index]  # Get the correct track index
                 new_size_array[track_index] = 30  # Set track point size to 30
 
             # Update the size array with the correct shape
@@ -465,10 +432,10 @@ def add_detection(layer, event):
             layer.border_width_is_relative = False  # Ensure the border width is absolute
 
             # Ensure the new point is added with the correct data in shared_state
-            shared_state.DATA[current_index].append([int(data_coords[0]), int(data_coords[1]), 0, 0])
-            add_node_with_dummy_edges(node=f'D_{current_index}_{shared_state.NUM_DET_PER_FRAME[current_index]}',
-                                      time_point=current_index,
-                                      idx=shared_state.NUM_DET_PER_FRAME[current_index],
+            shared_state.DATA[shared_state.current_index].append([int(data_coords[0]), int(data_coords[1]), 0, 0])
+            add_node_with_dummy_edges(node=f'D_{shared_state.current_index}_{shared_state.NUM_DET_PER_FRAME[shared_state.current_index]}',
+                                      time_point=shared_state.current_index,
+                                      idx=shared_state.NUM_DET_PER_FRAME[shared_state.current_index],
                                       y=int(data_coords[0]),
                                       x=int(data_coords[1]),
                                       displ_y=0,
@@ -476,8 +443,8 @@ def add_detection(layer, event):
                                       G=shared_state.G,
                                       highest_frame_id=len(shared_state.DATA)-1,
                                       max_score=shared_state.MAX_SCORE)
-            print(f'Added node D_{current_index}_{shared_state.NUM_DET_PER_FRAME[current_index]}.')
-            shared_state.NUM_DET_PER_FRAME[current_index] += 1
+            print(f'Added node D_{shared_state.current_index}_{shared_state.NUM_DET_PER_FRAME[shared_state.current_index]}.')
+            shared_state.NUM_DET_PER_FRAME[shared_state.current_index] += 1
 
             # Refresh the layer to display the new point
             layer.refresh()
@@ -497,10 +464,20 @@ def add_detection(layer, event):
 
 def acceptTrack(event=None):
     accept_track_event()
-    print("acceptTrack function called")
     update_image()
 
+def saveSegment(event=None):
+    print("saveSegment triggered!")  # Add this line to check if the function is called
+    save_segment_event()
+    update_image()
 
+def deleteSegment(event=None):
+    delete_segment_event()
+    update_image()
+
+def deleteAllConnections(event=None):
+    delete_all_connections_event()
+    update_image()
 
 def reset_new_point_flag():
     """Reset the flag indicating a new point was added."""
@@ -512,8 +489,11 @@ def setup_keybindings():
     """Set up key bindings for the viewer."""
     viewer.bind_key('Right', next_image)  # Right arrow key to move to the next image
     viewer.bind_key('Left', previous_image)  # Left arrow key to move to the previous image
-    viewer.bind_key('D', lambda event: delete_detection(viewer.layers.selection.active, use_key=True))  # Bind 'D' key to delete track detection
-    viewer.bind_key('Shift-Q', lambda event: acceptTrack()) # Bind 'Shift + Q' key combination to accept track
+    viewer.bind_key('D', lambda event: delete_detection(viewer.layers.selection.active, use_key=True))  # Use lambda to pass arguments
+    viewer.bind_key('Shift-Q', acceptTrack)  
+    viewer.bind_key('W', saveSegment) # save correct segment
+    viewer.bind_key('Shift-Z', deleteSegment) # delete a whole segment
+    viewer.bind_key('X', deleteAllConnections) # delete all connections from a node, apart from the D-X edge
 
 def trackin_main():
     """Main function to show the plugin interface."""

@@ -18,6 +18,7 @@ class SharedState:
         self.SESSION_FILE = ''
         self.UPDATED_DATA_FILE = ''
         self.csv_folder_to_save = ''
+        self.current_index = 0
 
 
 shared_state = SharedState()

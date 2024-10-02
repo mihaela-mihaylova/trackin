@@ -199,3 +199,29 @@ def find_node_by_attributes(G, **attrs):
             matching_nodes.append(node)
     
     return matching_nodes
+
+def add_node_with_dummy_edges(node, time_point, idx, y, x, displ_y, displ_x, G, highest_frame_id, max_score):
+    G.add_node(node, time_point=time_point, idx=idx, y=y, x=x, displ_y=displ_y, displ_x=displ_x, type = 'D')
+    frame_id = int(node.split('_')[1])
+    if frame_id == 0:
+        G.add_edge('S', node, weight=max_score)
+        G.add_edge(node, 'X_1', weight=max_score)
+    elif frame_id > 0 and frame_id < highest_frame_id:
+        G.add_edge(f'Y_{frame_id-1}', node, weight=max_score)
+        G.add_edge(node,  f'X_{frame_id+1}', weight=max_score)
+    else:
+        G.add_edge(f'Y_{frame_id-1}', node, weight=max_score)
+        G.add_edge(node, 'T', weight=max_score)
+
+def remove_all_successors(graph, node, exception_node):
+    """
+    Remove all successors of a given node in a directed graph.
+    
+    Parameters:
+    graph (networkx.Graph): The directed graph.
+    node (int or str): The node whose successors should be removed.
+    """
+    # Get a list of all successors
+    successors = list(graph.successors(node))
+    # Remove all edges from the node to its successors
+    graph.remove_edges_from((node, succ) for succ in successors if succ != exception_node and succ != 'T')
