@@ -47,6 +47,7 @@ def send_track():
 def accept_track():
     shared_state.N_TRACKS += 1
     track = shared_state.track
+    track_with_nodes = []
     session_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)
     
     # Determine if header should be added based on file existence and size
@@ -62,8 +63,10 @@ def accept_track():
                 shared_state.DATA[i][p] = (-1000000, -1000000)
                 # remove nodes from track
                 shared_state.G.remove_node(f'D_{i}_{p}')
+                # add node names to list
+                track_with_nodes.append(f'D_{i}_{p}')
     # this is used to remove the nodes used for the track
-    generate_tracks(shared_state.G, shared_state.DATA, max_num=1, debug=False)
+    print(f'Accepted track: {track_with_nodes}')
 
     # Save the up-to-date version of DATA
     updated_data_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE)

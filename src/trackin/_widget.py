@@ -497,6 +497,9 @@ def add_detection(layer, event):
 
 def acceptTrack(event=None):
     accept_track_event()
+    print("acceptTrack function called")
+    update_image()
+
 
 
 def reset_new_point_flag():
@@ -510,7 +513,7 @@ def setup_keybindings():
     viewer.bind_key('Right', next_image)  # Right arrow key to move to the next image
     viewer.bind_key('Left', previous_image)  # Left arrow key to move to the previous image
     viewer.bind_key('D', lambda event: delete_detection(viewer.layers.selection.active, use_key=True))  # Bind 'D' key to delete track detection
-    viewer.bind_key('A', lambda event: acceptTrack)  # Bind 'A' key to accept track
+    viewer.bind_key('Shift-Q', lambda event: acceptTrack()) # Bind 'Shift + Q' key combination to accept track
 
 def trackin_main():
     """Main function to show the plugin interface."""
