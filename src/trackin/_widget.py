@@ -329,16 +329,17 @@ def compute_track_lines():
 
 def delete_detection(layer, event=None, use_key=False):
     """Delete detection or track detection based on right-click or 'D' key."""
+    global clicked_index
     clicked_index = None
 
-    # Determine the index of the clicked point based on the input type (mouse or key)
-    if not use_key:
-        if event and event.button == 2:  # Right-click
+    # Determine the clicked index based on input type
+    if not use_key:  # Called from mouse event
+        if event.button == 2:  # Right-click
             click_position = event.position
             clicked_index = layer.get_value(click_position, world=True)
             if clicked_index is None:
                 return  # No valid point was clicked, exit
-    else:
+    else:  # Called using the 'D' key
         curr_track = shared_state.track
         if curr_track[shared_state.current_index] != -1:
             clicked_index = curr_track[shared_state.current_index]  # Use the tracked index if available
@@ -346,30 +347,52 @@ def delete_detection(layer, event=None, use_key=False):
             print("No detection found to delete with 'D' key.")
             return
 
-    # Proceed if a valid point is found
+    # If a valid point is found, determine if it's part of a track or a standard detection
     if clicked_index is not None:
-        # Update layer and data positions to reflect the fact that the point is deleted
-        point_coords = layer.data[clicked_index].copy()
-        layer.data[clicked_index] = [-1000000, -1000000]
-        shared_state.DATA[shared_state.current_index][clicked_index] = (-1000000, -1000000)
-        node_name = f'D_{shared_state.current_index}_{clicked_index}'
-        shared_state.G.remove_node(node_name)
+        curr_track = shared_state.track
+        if curr_track[shared_state.current_index] == clicked_index:
+            # Call the function for deleting track detection
+            delete_det_by_key(layer)
+        else:
+            delete_det_by_mouse(layer, event)
 
-        # If the clicked index is part of the current track, update the track state
-        if shared_state.track[shared_state.current_index] == clicked_index:
-            # Update the track state
-            shared_state.track[shared_state.current_index] = -1
-            remove_track_node_event()
-            update_image()
-
-        # Refresh the layer to update the visual display
-        layer.refresh()
-    print(f'Removed node {node_name} with positions {point_coords}.')
-
-    # Mark the event as handled if called from a mouse event
+    # Mark the event as handled if called from a mouse event, otherwise mouse gets locked
     if event is not None:
         event.handled = True
 
+def delete_det_by_key(layer):
+    """Delete track detection using the 'D' key."""
+    point_coords = layer.data[clicked_index].copy()
+    layer.data[clicked_index] = [-1000000, -1000000]
+    shared_state.DATA[shared_state.current_index][clicked_index] = (-1000000, -1000000)
+    node_name = f'D_{shared_state.current_index}_{clicked_index}'
+    shared_state.G.remove_node(node_name)
+
+    # Update the track state
+    shared_state.track[shared_state.current_index] = -1
+    remove_track_node_event()
+    update_image()
+
+    # Refresh the layer to update the visual display
+    layer.refresh()
+    print(f"Removed node {node_name} with coordinates {point_coords}.")
+
+
+def delete_det_by_mouse(layer, event):
+    """Delete track detection using right-click."""
+    point_coords = layer.data[clicked_index].copy()
+    layer.data[clicked_index] = [-1000000, -1000000]
+    shared_state.DATA[shared_state.current_index][clicked_index] = (-1000000, -1000000)
+
+    node_name = f'D_{shared_state.current_index}_{clicked_index}'
+    shared_state.G.remove_node(node_name)
+
+    layer.refresh()
+    print(f"Removed node {node_name} with coordinates {point_coords}.")
+
+    # Mark the event as handled to stop further processing
+    event.handled = True
+    return  # Exit here to stop any further mouse events
 
 def on_click(layer, event):
     """Handle left mouse click and make clicked-on detection part of current track only if clicked directly on a point."""
@@ -489,7 +512,7 @@ def setup_keybindings():
     """Set up key bindings for the viewer."""
     viewer.bind_key('Right', next_image)  # Right arrow key to move to the next image
     viewer.bind_key('Left', previous_image)  # Left arrow key to move to the previous image
-    viewer.bind_key('D', lambda event: delete_detection(viewer.layers.selection.active, use_key=True))  # Use lambda to pass arguments
+    viewer.bind_key('D', lambda event: delete_detection(viewer.layers.selection.active, use_key=True))  # Trigger only for D key
     viewer.bind_key('Shift-Q', acceptTrack)  
     viewer.bind_key('W', saveSegment) # save correct segment
     viewer.bind_key('Shift-Z', deleteSegment) # delete a whole segment
