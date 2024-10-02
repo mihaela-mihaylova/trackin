@@ -486,8 +486,13 @@ def add_detection(layer, event):
             print("Clicked outside the image bounds. Point not added.")
 
 def acceptTrack(event=None):
-    accept_track_event()
-    update_image()
+    """Trigger the accept track event and move to frame 0."""
+    accept_track_event()  # Trigger the event to handle track acceptance
+    shared_state.current_index = 0  # Reset to the first frame (frame 0)
+    update_image()  # Update the displayed image
+    image_slider.image_index.value = shared_state.current_index  # Sync the slider value
+    print(f"Accepted track {shared_state.N_TRACKS}.")
+
 
 def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
@@ -496,7 +501,9 @@ def saveSegment(event=None):
 
 def deleteSegment(event=None):
     delete_segment_event()
-    update_image()
+    shared_state.current_index = 0  # Reset to the first frame (frame 0)
+    update_image()  # Update the displayed image
+    image_slider.image_index.value = shared_state.current_index  # Sync the slider value
 
 def deleteAllConnections(event=None):
     delete_all_connections_event()
