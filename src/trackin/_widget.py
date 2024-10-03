@@ -481,7 +481,7 @@ def add_detection(layer, event):
             new_point_added = True
 
             # Use a QTimer to reset the flag after 200 milliseconds
-            QTimer.singleShot(200, reset_new_point_flag)
+            QTimer.singleShot(100, reset_new_point_flag)
         else:
             print("Clicked outside the image bounds. Point not added.")
 
@@ -491,23 +491,35 @@ def acceptTrack(event=None):
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
-    print(f"Accepted track {shared_state.N_TRACKS}.")
+    # Refocus the main container after handling the event
+    if container:
+        container.setFocus()
 
-
+     
 def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
     save_segment_event()
     update_image()
+    # Refocus the main container after handling the event
+    if container:
+        container.setFocus()
+    
 
 def deleteSegment(event=None):
     delete_segment_event()
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
+    # Refocus the main container after handling the event
+    if container:
+        container.setFocus()
 
 def deleteAllConnections(event=None):
     delete_all_connections_event()
     update_image()
+    # Refocus the main container after handling the event
+    if container:
+        container.setFocus()
 
 def reset_new_point_flag():
     """Reset the flag indicating a new point was added."""
