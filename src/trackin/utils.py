@@ -106,7 +106,7 @@ def save_segment():
             print(f'Removing edges: {nb}.')
             print(f"Successor nodes of {n1}: {list(shared_state.G.successors(n1))}")
 
-    return send_track()
+    #return send_track()
 
 
 save_segment_event.connect(save_segment)
@@ -148,6 +148,9 @@ def delete_all_connections():
         remove_all_successors(shared_state.G, node_name, f'X_{t1+1}')
         print(f'Removed all edges from {node_name}, apart from X_{t1+1}.')
         save_segment()
+        # assign -1 to all consecutive positions in the track, because all further edges become irrelevant
+        for i in range(t1+1,len(shared_state.track)):
+             shared_state.track[i] = -1
     else:
         print('No obsolete edges to remove. This is the very last frame. No incorrect edges will be deleted between the nodes in segment up to that point.')
 
@@ -168,7 +171,7 @@ def build_graph():
 def track():
     # If the graph isn't built yet, build it
     if shared_state.G is None:
-        show_info("Building graph since it hasn't been created yet...")
+        show_info("Building detections graph.")
         build_graph()
 
     # Ensure the graph was actually built

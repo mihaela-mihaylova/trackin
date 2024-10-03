@@ -10,6 +10,8 @@ from napari.utils.events import EventEmitter
 from .shared_state import shared_state
 from datetime import datetime
 from .tracking import find_node_by_attributes, add_node_with_dummy_edges
+from napari.utils.notifications import show_info
+
 
 viewer = None
 images = []
@@ -509,11 +511,11 @@ def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
     save_segment_event()
     update_image()
+    show_info("Segment saved.")
     # Refocus the main container after handling the event
     if container:
         container.setFocus()
     
-
 def deleteSegment(event=None):
     delete_segment_event()
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
@@ -613,7 +615,7 @@ def handle_left(viewer):
 def start_timer(timer):
     """Start the timer to continuously update images."""
     if not timer.isActive():
-        timer.start(50)  # rate of change of images when an arrow is pressed
+        timer.start(5)  # rate of change of images when an arrow is pressed
 
 def stop_timer(timer):
     """Stop the timer when the key is released."""
