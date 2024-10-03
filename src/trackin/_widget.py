@@ -28,6 +28,10 @@ delete_segment_event = EventEmitter(source=None, type_name='delete_segment')
 save_segment_event = EventEmitter(source=None, type_name='save_segment')
 delete_all_connections_event = EventEmitter(source=None, type_name='delete_all_connections')
 
+# Create timers for handling continuous key press events
+right_timer = QTimer()
+left_timer = QTimer()
+
 def initialize_viewer(napari_viewer):
     """Initialize the Napari viewer object."""
     global viewer
@@ -35,6 +39,11 @@ def initialize_viewer(napari_viewer):
 
     # Set up key bindings for the viewer
     setup_keybindings()
+
+    # Set up the timers for handling repeated key presses
+    right_timer.timeout.connect(next_image)
+    left_timer.timeout.connect(previous_image)
+
 
  # adds these displacement columns with value 0, in case they are not present
 def check_and_add_displ_cols(df):
@@ -529,8 +538,8 @@ def reset_new_point_flag():
 
 def setup_keybindings():
     """Set up key bindings for the viewer."""
-    viewer.bind_key('Right', next_image)  # Right arrow key to move to the next image
-    viewer.bind_key('Left', previous_image)  # Left arrow key to move to the previous image
+    viewer.bind_key('Right', handle_right)  # Right arrow key to move to the next image
+    viewer.bind_key('Left', handle_left)  # Left arrow key to move to the previous image
     viewer.bind_key('D', lambda event: delete_detection(viewer.layers.selection.active, use_key=True))  # Trigger only for D key
     viewer.bind_key('Shift-Q', acceptTrack)  
     viewer.bind_key('W', saveSegment) # save correct segment
@@ -587,3 +596,26 @@ def write_updated_detections_to_file(data, updated_data_file, csv_path):
             if (data[i][j][0]!=-1000000 and data[i][j][1]!=-1000000):
                 f.write(f"{i},{data[i][j][0]},{data[i][j][1]},{data[i][j][2]},{data[i][j][3]}\n")
     f.close()
+
+
+def handle_right(viewer):
+    """Handle the Right arrow key press and release."""
+    start_timer(right_timer)  # Start on key press
+    yield  # Wait for key release
+    stop_timer(right_timer)  # Stop on key release
+
+def handle_left(viewer):
+    """Handle the Left arrow key press and release."""
+    start_timer(left_timer)  # Start on key press
+    yield  # Wait for key release
+    stop_timer(left_timer)  # Stop on key release
+
+def start_timer(timer):
+    """Start the timer to continuously update images."""
+    if not timer.isActive():
+        timer.start(50)  # rate of change of images when an arrow is pressed
+
+def stop_timer(timer):
+    """Stop the timer when the key is released."""
+    if timer.isActive():
+        timer.stop()
