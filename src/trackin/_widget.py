@@ -123,6 +123,7 @@ def load_csv():
     
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
+        show_info("Detections are being loaded...")
         if csv_loaded:
             #if a new csv is loaded, then the old detections should be removed
             viewer.layers['detections'].data = np.empty((0, 2))
@@ -366,7 +367,7 @@ def overlay_points(frame_data):
     track_index = curr_track[shared_state.current_index]
     if track_index != -1:
         border_colors[track_index] = 'yellow'
-        sizes[track_index] = 30  # Increase the size of the track point
+        sizes[track_index] = 35  # Increase the size of the track point
         border_widths[track_index] = 3  # Thicker border for the track point
 
     # --- Apply updates only if attributes have changed ---
@@ -392,7 +393,7 @@ def overlay_points(frame_data):
     else:
         track_layer = viewer.add_points(
             track_point,
-            size=30,  # Larger size for the track point
+            size=35,  # Larger size for the track point
             face_color='transparent',
             border_color='yellow',
             border_width=3,
@@ -622,11 +623,12 @@ def acceptTrack(event=None):
 def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
     save_segment_event()
+    shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()
+    image_slider.image_index.value = shared_state.current_index  # Sync the slider value
     # Refocus the main container after handling the event
     if container:
         container.setFocus()
-    
 
 def deleteSegment(event=None):
     delete_segment_event()
