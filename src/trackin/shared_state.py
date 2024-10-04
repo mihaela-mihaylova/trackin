@@ -19,6 +19,8 @@ class SharedState:
         self.UPDATED_DATA_FILE = ''
         self.csv_folder_to_save = ''
         self.current_index = 0
+        self.UPD_TRACK_FILE = ''
+        self.MAX_TRACK_ID = None
 
 
 shared_state = SharedState()
