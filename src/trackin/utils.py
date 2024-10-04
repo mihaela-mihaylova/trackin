@@ -49,6 +49,8 @@ def accept_track():
     track = shared_state.track
     track_with_nodes = []
     session_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)
+    if shared_state.MAX_TRACK_ID is not None:
+        upd_tracks_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE)
     
     # Determine if header should be added based on file existence and size
     add_header = not os.path.exists(session_file_path) or os.path.getsize(session_file_path) == 0
@@ -65,8 +67,13 @@ def accept_track():
                 shared_state.G.remove_node(f'D_{i}_{p}')
                 # add node names to list
                 track_with_nodes.append(f'D_{i}_{p}')
-    # this is used to remove the nodes used for the track
-    print(f'Accepted track {shared_state.N_TRACKS}.')
+   
+    if shared_state.MAX_TRACK_ID is not None:
+        with open(upd_tracks_file_path, "a") as f:
+            updated_track_id = shared_state.MAX_TRACK_ID + shared_state.N_TRACKS
+            for i, p in enumerate(track):
+                if p >= 0:
+                    f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]},{shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{updated_track_id}\n")
 
     # Save the up-to-date version of DATA
     updated_data_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE)
@@ -78,6 +85,10 @@ def accept_track():
                 if shared_state.DATA[i][j][0] != -1000000 and shared_state.DATA[i][j][1] != -1000000:
                     g.write(f"{i},{shared_state.DATA[i][j][0]},{shared_state.DATA[i][j][1]},{shared_state.DATA[i][j][2]},{shared_state.DATA[i][j][3]}\n")
     
+
+    # this is used to remove the nodes used for the track
+    show_info(f'Accepted track.')
+
     return send_track()
 
 accept_track_event.connect(accept_track)

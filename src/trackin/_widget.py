@@ -147,6 +147,73 @@ def load_csv():
         check_and_update_image()
 
 
+@magicgui(call_button="Add Track File", auto_call=True)
+def load_track_file():
+    """Open a dialog to select a CSV file and load a csv with tracks generated in a previous session."""
+    
+    if not images_loaded or not csv_loaded:
+        QMessageBox.information(None, "Load Images and Detections First.", "Please load the images and detections before loading the track file to add new tracks to.")
+        return
+
+    csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
+    if csv_path:
+        csv_filename = csv_path.split('/')[-1].split('.')[0]
+        # generate the current timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # name for file where leftover positions are preserved
+        shared_state.UPD_TRACK_FILE = f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
+
+        track_df = pd.read_csv(csv_path).astype(int)
+        try:
+            track_df = pd.read_csv(csv_path).astype(int)
+            expected_columns = ['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']
+            
+            # Check if the columns match the expected format
+            if list(track_df.columns) != expected_columns:
+                # Display error message if columns are incorrect
+                QMessageBox.critical(None, "CSV Format Error", f"CSV file must have the following columns in order: {expected_columns}")
+                return
+            
+            # Check if the file is empty or only has a header
+            if track_df.empty or (len(track_df) == 0 and not track_df.columns.empty):
+                QMessageBox.critical(None, "File Is Empty", "The loaded file is empty or only contains a header.")
+                return
+            
+            # Load the current session tracks, if any
+            check_session_file = not os.path.exists(shared_state.SESSION_FILE) or os.path.getsize(shared_state.SESSION_FILE) == 0
+
+            if check_session_file:
+                # If session_df is empty, save track_df directly with the updated file name
+                updated_track_df_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE)
+                track_df.to_csv(updated_track_df_path, index=False)
+                max_track_no = track_df['track_no'].max()
+                QMessageBox.information(None, "Track File Added", "The track file has been successfully added. New tracks will be added to the existing tracks.")
+                
+            else:
+                session_df = pd.read_csv(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))
+
+                # If session_df has data, extract the max value of track_no from track_df
+                max_track_no = track_df['track_no'].max()
+                
+                # Increment the track_no values in session_df to ensure unique values
+                session_df['track_no'] = session_df['track_no'] + max_track_no + 1  # Ensure no overlap
+                
+                # Concatenate the DataFrames
+                updated_tracks_df = pd.concat([track_df, session_df], ignore_index=True)
+                
+                # Save the combined tracks to the new track file
+                updated_tracks_df.to_csv(os.path.join(shared_state.csv_folder_to_save, f"{shared_state.UPD_TRACK_FILE}"), index=False)
+                QMessageBox.information(None, "Track File Updated", "The track file has been successfully updated with the new tracks.")
+            
+            shared_state.MAX_TRACK_ID = max_track_no
+
+        except pd.errors.ParserError as e:
+            QMessageBox.critical(None, "File Error", f"The selected file is not a valid CSV or is malformed: {e}")
+            return
+        except Exception as e:
+            QMessageBox.critical(None, "Error", f"An unexpected error occurred: {e}")
+
+
 def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
     global viewer, container
@@ -555,6 +622,7 @@ def trackin_main():
     # Use the magicgui widgets and add them directly to the layout
     layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
     layout.addWidget(load_csv.native)
+    layout.addWidget(load_track_file.native)
     layout.addWidget(image_slider.native)  # Add the slider widget
     
     # Set layout to the container
