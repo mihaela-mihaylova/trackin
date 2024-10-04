@@ -10,8 +10,6 @@ from napari.utils.events import EventEmitter
 from .shared_state import shared_state
 from datetime import datetime
 from .tracking import find_node_by_attributes, add_node_with_dummy_edges
-from napari.utils.notifications import show_info
-
 
 viewer = None
 images = []
@@ -98,7 +96,7 @@ def check_and_update_image():
     if images_loaded and csv_loaded:
         update_image()
 
-@magicgui(call_button="Choose Folder", auto_call=True)
+@magicgui(call_button="Load Images", auto_call=True)
 def choose_folder():
     """Open a dialog to select a folder and load images from it."""
     global images, image_files, viewer, images_loaded
@@ -113,7 +111,7 @@ def choose_folder():
             check_and_update_image()
             update_slider_max()
 
-@magicgui(call_button="Load CSV", auto_call=True)
+@magicgui(call_button="Load Detections", auto_call=True)
 def load_csv():
     global csv_loaded, csv_data
     """Open a dialog to select a CSV file and load its data."""
@@ -511,11 +509,11 @@ def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
     save_segment_event()
     update_image()
-    show_info("Segment saved.")
     # Refocus the main container after handling the event
     if container:
         container.setFocus()
     
+
 def deleteSegment(event=None):
     delete_segment_event()
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
@@ -615,7 +613,7 @@ def handle_left(viewer):
 def start_timer(timer):
     """Start the timer to continuously update images."""
     if not timer.isActive():
-        timer.start(5)  # rate of change of images when an arrow is pressed
+        timer.start(50)  # rate of change of images when an arrow is pressed
 
 def stop_timer(timer):
     """Stop the timer when the key is released."""
