@@ -58,7 +58,7 @@ def accept_track():
             f.write("tframe,y,x,displ_y,displ_x,track_no\n")  # Write the header row
         for i, p in enumerate(track):
             if p >= 0:
-                f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]}, {shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{shared_state.N_TRACKS}\n")
+                f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]},{shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{shared_state.N_TRACKS}\n")
                 # Assign nonsense values so that it's clear that the points from the accepted track have been deleted
                 shared_state.DATA[i][p] = (-1000000, -1000000)
                 # remove nodes from track
