@@ -179,7 +179,7 @@ def build_graph():
 def track():
     # If the graph isn't built yet, build it
     if shared_state.G is None:
-        show_info("Building graph since it hasn't been created yet...")
+        show_info("Building graph...")
         build_graph()
 
     # Ensure the graph was actually built

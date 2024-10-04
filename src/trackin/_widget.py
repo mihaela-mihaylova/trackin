@@ -10,6 +10,7 @@ from napari.utils.events import EventEmitter
 from .shared_state import shared_state
 from datetime import datetime
 from .tracking import find_node_by_attributes, add_node_with_dummy_edges
+from napari.utils.notifications import show_info
 
 viewer = None
 images = []
@@ -115,13 +116,28 @@ def choose_folder():
 def load_csv():
     global csv_loaded, csv_data
     """Open a dialog to select a CSV file and load its data."""
-    
+    print(csv_loaded)
     if not images_loaded:
         QMessageBox.information(None, "Load Images First", "Please load the images before loading the CSV file.")
         return
-
+    
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
+        if csv_loaded:
+            #if a new csv is loaded, then the old detections should be removed
+            viewer.layers['detections'].data = np.empty((0, 2))
+            viewer.layers['track_lines'].data = []  # Clear the line data
+            # and if a file with previous tracks was loaded, this is removed
+            if shared_state.MAX_TRACK_ID is not None:
+                shared_state.track = []
+                shared_state.track_dict = {}
+                shared_state.track_lines = None
+                shared_state.G = None
+                shared_state.DATA = []
+                shared_state.NUM_DET_PER_FRAME = []
+                shared_state.TRACKED = False
+                shared_state.MAX_TRACK_ID = None
+
         csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -137,7 +153,6 @@ def load_csv():
             csv_data = csv_data[['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']]
         shared_state.csv_folder_to_save = os.path.dirname(csv_path)
         shared_state.DATA = generate_positions_list(csv_data, shared_state.csv_folder_to_save)  
-        
         csv_loaded = True
         csv_loaded_event()  # Trigger CSV loaded event
 
@@ -187,7 +202,7 @@ def load_track_file():
                 updated_track_df_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE)
                 track_df.to_csv(updated_track_df_path, index=False)
                 max_track_no = track_df['track_no'].max()
-                QMessageBox.information(None, "Track File Added", "The track file has been successfully added. New tracks will be added to the existing tracks.")
+                show_info("Track File Added. \n The track file has been successfully added. New tracks will be added to the existing tracks.")
                 
             else:
                 session_df = pd.read_csv(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))
@@ -203,8 +218,8 @@ def load_track_file():
                 
                 # Save the combined tracks to the new track file
                 updated_tracks_df.to_csv(os.path.join(shared_state.csv_folder_to_save, f"{shared_state.UPD_TRACK_FILE}"), index=False)
-                QMessageBox.information(None, "Track File Updated", "The track file has been successfully updated with the new tracks.")
-            
+                show_info("Track File Updated. \n The track file has been successfully updated with the new tracks.")
+    
             shared_state.MAX_TRACK_ID = max_track_no
 
         except pd.errors.ParserError as e:
@@ -681,7 +696,7 @@ def handle_left(viewer):
 def start_timer(timer):
     """Start the timer to continuously update images."""
     if not timer.isActive():
-        timer.start(50)  # rate of change of images when an arrow is pressed
+        timer.start(1)  # rate of change of images when an arrow is pressed
 
 def stop_timer(timer):
     """Stop the timer when the key is released."""
