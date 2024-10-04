@@ -325,7 +325,7 @@ def update_image():
                 overlay_points(pd.DataFrame(frame_data, columns=columns))
 
 def overlay_points(frame_data):
-    """Overlay circles on the image for each (x, y) in the frame data, with styling for the track point, and draw lines connecting them."""
+    """Overlay circles on the image for each (x, y) in the frame data, with a separate layer for the track point."""
     global viewer
 
     if frame_data.empty:
@@ -336,42 +336,71 @@ def overlay_points(frame_data):
     points = np.array([frame_data['y'], frame_data['x']]).T
     curr_track = shared_state.track
 
-    # Prepare default attributes for all points
-    border_colors = ['white'] * len(points)
-    sizes = [20] * len(points)  # Default size
-    border_widths = [1] * len(points)  # Default border width
-
-    # Check if track contains detection in this frame and apply custom styles for the track point
-    if curr_track[shared_state.current_index] != -1:
-        track_index = curr_track[shared_state.current_index]
-        border_colors[track_index] = 'yellow'  # Highlight the track point in yellow
-        sizes[track_index] = 30  # Increase the size of the track point
-        border_widths[track_index] = 3  # Thicker border for track point
-
-    # Check if 'detections' layer already exists, if so update it, otherwise create a new one
+    # --- Main Points Layer ---
     if 'detections' in viewer.layers:
         points_layer = viewer.layers['detections']
-        points_layer.data = points
-        points_layer.size = sizes
-        points_layer.border_color = border_colors
-        points_layer.border_width = border_widths
+        # Update only the data if it has changed
+        if not np.array_equal(points_layer.data, points):
+            points_layer.data = points
     else:
-        # Create the points layer
         points_layer = viewer.add_points(
             points,
-            size=sizes,
+            size=20,  # Default size for all detections
             face_color='transparent',
-            border_color=border_colors,
-            border_width=border_widths,
+            border_color='white',
+            border_width=1,
             border_width_is_relative=False,
             name='detections'
         )
-        # Attach mouse event handlers
+        # Attach event handlers if necessary
         points_layer.mouse_drag_callbacks.append(delete_detection)
         points_layer.mouse_drag_callbacks.append(add_detection)
         points_layer.mouse_drag_callbacks.append(on_click)
 
-    # Construct and update track lines
+    # Prepare attributes for the main points layer
+    border_colors = ['white'] * len(points)
+    sizes = [20] * len(points)
+    border_widths = [1] * len(points)
+
+    # Check if track contains detection in this frame and apply custom styles for the track point
+    track_index = curr_track[shared_state.current_index]
+    if track_index != -1:
+        border_colors[track_index] = 'yellow'
+        sizes[track_index] = 30  # Increase the size of the track point
+        border_widths[track_index] = 3  # Thicker border for the track point
+
+    # --- Apply updates only if attributes have changed ---
+    if not np.array_equal(points_layer.size, sizes):
+        points_layer.size = sizes
+    if not np.array_equal(points_layer.border_color, border_colors):
+        points_layer.border_color = border_colors
+    if not np.array_equal(points_layer.border_width, border_widths):
+        points_layer.border_width = border_widths
+
+    # --- Separate Track Point Layer ---
+    # Check if there is a valid track point in this frame
+    if track_index != -1:
+        track_point = np.array([points[track_index]])  # Select only the current track point
+    else:
+        track_point = np.empty((0, 2))  # Empty array if no track point is present
+
+    # Create or update the separate track point layer
+    if 'track_point' in viewer.layers:
+        track_layer = viewer.layers['track_point']
+        if not np.array_equal(track_layer.data, track_point):
+            track_layer.data = track_point
+    else:
+        track_layer = viewer.add_points(
+            track_point,
+            size=30,  # Larger size for the track point
+            face_color='transparent',
+            border_color='yellow',
+            border_width=3,
+            border_width_is_relative=False,
+            name='track_point'
+        )
+
+    # --- Construct and update track lines ---
     track_points = []
     for t in range(len(shared_state.track)):
         track_idx = shared_state.track[t]
@@ -379,14 +408,13 @@ def overlay_points(frame_data):
             y, x = shared_state.DATA[t][track_idx][:2]  # Get (y, x) coordinates
             track_points.append([y, x])
 
-    # If there are at least two points, create line segments
     if len(track_points) > 1:
         lines = np.array([[track_points[i], track_points[i + 1]] for i in range(len(track_points) - 1)])
-        # Check if 'track_lines' layer already exists, if so update it, otherwise create a new one
         if 'track_lines' in viewer.layers:
-            viewer.layers['track_lines'].data = lines
+            if not np.array_equal(viewer.layers['track_lines'].data, lines):
+                viewer.layers['track_lines'].data = lines
         else:
-            # Create the shapes layer for the track lines
+            # Create the shapes layer for the track lines if it doesn't exist
             viewer.add_shapes(
                 lines,
                 shape_type='line',
@@ -395,9 +423,13 @@ def overlay_points(frame_data):
                 name='track_lines',
                 face_color='transparent'
             )
+    else:
+        if 'track_lines' in viewer.layers:
+            viewer.layers['track_lines'].data = np.empty((0, 2, 2))
 
-    # Set the points layer as active
+    # Set the points layer as active to enable further interactions
     viewer.layers.selection.active = points_layer
+
 
 def compute_track_lines():
     """Compute line segments connecting consecutive points in the track."""
@@ -696,7 +728,7 @@ def handle_left(viewer):
 def start_timer(timer):
     """Start the timer to continuously update images."""
     if not timer.isActive():
-        timer.start(1)  # rate of change of images when an arrow is pressed
+        timer.start(50)  
 
 def stop_timer(timer):
     """Stop the timer when the key is released."""
