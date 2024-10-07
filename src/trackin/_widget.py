@@ -497,7 +497,12 @@ def delete_det_by_key(layer):
     """Delete track detection using the 'D' key."""
     point_coords = layer.data[clicked_index].copy()
     layer.data[clicked_index] = [-1000000, -1000000]
-    shared_state.DATA[shared_state.current_index][clicked_index] = (-1000000, -1000000)
+
+    if shared_state.TRACKED:
+        shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0, None])
+    else:
+        shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0])
+
     node_name = f'D_{shared_state.current_index}_{clicked_index}'
     shared_state.G.remove_node(node_name)
 
@@ -515,7 +520,11 @@ def delete_det_by_mouse(layer, event):
     """Delete track detection using right-click."""
     point_coords = layer.data[clicked_index].copy()
     layer.data[clicked_index] = [-1000000, -1000000]
-    shared_state.DATA[shared_state.current_index][clicked_index] = (-1000000, -1000000)
+    
+    if shared_state.TRACKED:
+        shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0, None])
+    else:
+        shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0])
 
     node_name = f'D_{shared_state.current_index}_{clicked_index}'
     shared_state.G.remove_node(node_name)
