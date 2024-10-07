@@ -579,7 +579,11 @@ def add_detection(layer, event):
             layer.border_width_is_relative = False  # Ensure the border width is absolute
 
             # Ensure the new point is added with the correct data in shared_state
-            shared_state.DATA[shared_state.current_index].append([int(data_coords[0]), int(data_coords[1]), 0, 0])
+            if shared_state.TRACKED:
+                shared_state.DATA[shared_state.current_index].append([int(data_coords[0]), int(data_coords[1]), 0, 0, None])
+            else:
+                shared_state.DATA[shared_state.current_index].append([int(data_coords[0]), int(data_coords[1]), 0, 0])
+
             add_node_with_dummy_edges(node=f'D_{shared_state.current_index}_{shared_state.NUM_DET_PER_FRAME[shared_state.current_index]}',
                                       time_point=shared_state.current_index,
                                       idx=shared_state.NUM_DET_PER_FRAME[shared_state.current_index],

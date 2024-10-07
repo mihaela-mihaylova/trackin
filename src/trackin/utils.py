@@ -55,19 +55,7 @@ def accept_track():
     # Determine if header should be added based on file existence and size
     add_header = not os.path.exists(session_file_path) or os.path.getsize(session_file_path) == 0
     
-    with open(session_file_path, "a") as f:
-        if add_header:
-            f.write("tframe,y,x,displ_y,displ_x,track_no\n")  # Write the header row
-        for i, p in enumerate(track):
-            if p >= 0:
-                f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]},{shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{shared_state.N_TRACKS}\n")
-                # Assign nonsense values so that it's clear that the points from the accepted track have been deleted
-                shared_state.DATA[i][p] = (-1000000, -1000000)
-                # remove nodes from track
-                shared_state.G.remove_node(f'D_{i}_{p}')
-                # add node names to list
-                track_with_nodes.append(f'D_{i}_{p}')
-   
+    # add to file with both old and new tracks if a track file is loaded
     if shared_state.MAX_TRACK_ID is not None:
         with open(upd_tracks_file_path, "a") as f:
             updated_track_id = shared_state.MAX_TRACK_ID + shared_state.N_TRACKS
@@ -75,6 +63,22 @@ def accept_track():
                 if p >= 0:
                     f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]},{shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{updated_track_id}\n")
 
+    with open(session_file_path, "a") as f:
+        if add_header:
+            f.write("tframe,y,x,displ_y,displ_x,track_no\n")  # Write the header row
+        for i, p in enumerate(track):
+            if p >= 0:
+                f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]},{shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{shared_state.N_TRACKS}\n")
+                # Assign nonsense values so that it's clear that the points from the accepted track have been deleted
+                if shared_state.TRACKED:
+                    shared_state.DATA[i][p] = (-1000000,-1000000,0,0,None)
+                else:
+                    shared_state.DATA[i][p] = (-1000000,-1000000,0,0)
+                # remove nodes from track
+                shared_state.G.remove_node(f'D_{i}_{p}')
+                # add node names to list
+                track_with_nodes.append(f'D_{i}_{p}')
+   
     # Save the up-to-date version of DATA
     updated_data_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE)
     with open(updated_data_file_path, "w") as g:
@@ -106,9 +110,6 @@ def save_segment():
             n1 = f"D_{i}_{s[i]}"
             n2 = f"D_{i + 1}_{s[i + 1]}"
 
-            #print(f"Processing nodes: {n1}, {n2}")  # Debug print statement
-            #print(list(shared_state.G.successors(n1)))
-
             # Only remove D-D edges, not D-X edges
             nb = [(n1, ss) for ss in shared_state.G.successors(n1) if (shared_state.G.nodes[ss]["type"] in ["D"])]
             shared_state.G.remove_edges_from(nb)
@@ -118,6 +119,27 @@ def save_segment():
             print(f"Successor nodes of {n1}: {list(shared_state.G.successors(n1))}")
 
     return send_track()
+
+
+def save_segment_without_update():
+    """Save the currently defined segment to the graph."""
+    s = shared_state.track[0:shared_state.current_index]
+    if len(s) > 1:
+        for i in range(len(s) - 1):
+            if s[i] == -1 or s[i + 1] == -1:
+                continue
+
+            # Define node names based on current segment positions
+            n1 = f"D_{i}_{s[i]}"
+            n2 = f"D_{i + 1}_{s[i + 1]}"
+
+            # Only remove D-D edges, not D-X edges
+            nb = [(n1, ss) for ss in shared_state.G.successors(n1) if (shared_state.G.nodes[ss]["type"] in ["D"])]
+            shared_state.G.remove_edges_from(nb)
+            shared_state.G.add_edge(n1, n2, weight=0)
+
+            print(f'Removing edges: {nb}.')
+            print(f"Successor nodes of {n1}: {list(shared_state.G.successors(n1))}")
 
 
 save_segment_event.connect(save_segment)
@@ -158,7 +180,10 @@ def delete_all_connections():
     if t1 != len(shared_state.DATA)-1:
         remove_all_successors(shared_state.G, node_name, f'X_{t1+1}')
         print(f'Removed all edges from {node_name}, apart from X_{t1+1}.')
-        save_segment()
+        # assign -1 to all consecutive positions in the track, because all further edges become irrelevant
+        for i in range(t1+1,len(shared_state.track)):
+             shared_state.track[i] = -1
+        save_segment_without_update()
     else:
         print('No obsolete edges to remove. This is the very last frame. No incorrect edges will be deleted between the nodes in segment up to that point.')
 
