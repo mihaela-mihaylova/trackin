@@ -21,6 +21,7 @@ class SharedState:
         self.current_index = 0
         self.UPD_TRACK_FILE = ''
         self.MAX_TRACK_ID = None
-
+        self.NUM_DETS = None
+        self.NUM_CONN = None
 
 shared_state = SharedState()

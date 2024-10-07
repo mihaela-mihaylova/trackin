@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
-from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout
+from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QLabel  
 from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
@@ -28,6 +28,8 @@ accept_track_event = EventEmitter(source=None, type_name='accept_track')
 delete_segment_event = EventEmitter(source=None, type_name='delete_segment')
 save_segment_event = EventEmitter(source=None, type_name='save_segment')
 delete_all_connections_event = EventEmitter(source=None, type_name='delete_all_connections')
+graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
+
 
 # Create timers for handling continuous key press events
 right_timer = QTimer()
@@ -138,6 +140,10 @@ def load_csv():
                 shared_state.NUM_DET_PER_FRAME = []
                 shared_state.TRACKED = False
                 shared_state.MAX_TRACK_ID = None
+                dets_label.setParent(None)  
+                conns_label.setParent(None)
+                dets_label = None  
+                conns_label = None
 
         csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
@@ -162,6 +168,7 @@ def load_csv():
 
         check_and_update_image()
 
+        graph_updated_event()
 
 @magicgui(call_button="Add Track File", auto_call=True)
 def load_track_file():
@@ -480,6 +487,8 @@ def delete_detection(layer, event=None, use_key=False):
         else:
             delete_det_by_mouse(layer, event)
 
+        graph_updated_event()
+
     # Mark the event as handled if called from a mouse event, otherwise mouse gets locked
     if event is not None:
         event.handled = True
@@ -610,6 +619,7 @@ def add_detection(layer, event):
 
             # Use a QTimer to reset the flag after 200 milliseconds
             QTimer.singleShot(100, reset_new_point_flag)
+            graph_updated_event()
         else:
             print("Clicked outside the image bounds. Point not added.")
 
@@ -619,6 +629,7 @@ def acceptTrack(event=None):
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
+    graph_updated_event()
     # Refocus the main container after handling the event
     if container:
         container.setFocus()
@@ -639,6 +650,7 @@ def deleteSegment(event=None):
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
+    graph_updated_event()
     # Refocus the main container after handling the event
     if container:
         container.setFocus()
@@ -646,6 +658,7 @@ def deleteSegment(event=None):
 def deleteAllConnections(event=None):
     delete_all_connections_event()
     update_image()
+    graph_updated_event()
     # Refocus the main container after handling the event
     if container:
         container.setFocus()
@@ -668,7 +681,7 @@ def setup_keybindings():
 
 def trackin_main():
     """Main function to show the plugin interface."""
-    global container
+    global container, dets_label, conns_label
     container = QWidget()
     layout = QVBoxLayout(container)  # Create a vertical layout
     
@@ -740,3 +753,36 @@ def stop_timer(timer):
     """Stop the timer when the key is released."""
     if timer.isActive():
         timer.stop()
+
+# Global references for the QLabel widgets
+dets_label = None
+conns_label = None
+
+def update_labels():
+    """Update the QLabel widgets with the current count of detections and connections."""
+    global dets_label, conns_label  # Declare the variables as global to avoid NameError
+
+    if shared_state.G is not None:
+        # Compute the number of detections and connections
+        shared_state.NUM_DETS = shared_state.G.number_of_nodes() - 2 - 2 * (len(shared_state.DATA) - 1)
+        shared_state.NUM_CONN = shared_state.G.number_of_edges() - 2 * (len(shared_state.DATA))
+
+        # Check if labels exist, if not create and add them to the layout
+        if dets_label is None:
+            dets_label = QLabel(f"Detections: {shared_state.NUM_DETS}")
+            conns_label = QLabel(f"Connections: {shared_state.NUM_CONN}")
+            container.layout().addWidget(dets_label)  # Add the labels to the layout dynamically
+            container.layout().addWidget(conns_label)
+        else:
+            # If the labels already exist, just update the text
+            dets_label.setText(f"Detections: {shared_state.NUM_DETS}")
+            conns_label.setText(f"Connections: {shared_state.NUM_CONN}")
+    else:
+        # If G is None, remove or hide the labels (if necessary)
+        if dets_label is not None and conns_label is not None:
+            dets_label.setParent(None)  # Remove the label from the layout
+            conns_label.setParent(None)
+            dets_label = None  # Reset the label references
+            conns_label = None
+
+graph_updated_event.connect(update_labels)
