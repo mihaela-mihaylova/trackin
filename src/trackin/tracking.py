@@ -77,8 +77,6 @@ def generate_graph(points, max_score, score_func, tracked):
                     if tracked and G.nodes[f"D_{t}_{i}"]['track_no'] == G.nodes[f"D_{t+1}_{j}"]['track_no'] and G.nodes[f"D_{t}_{i}"]['track_no'] is not None and G.nodes[f"D_{t+1}_{j}"]['track_no'] is not None:
                         score = score*coeff
                         G.add_edge(f"D_{t}_{i}", f"D_{t+1}_{j}", weight = score)
-                        print('edge:{f"D_{t}_{i}", f"D_{t+1}_{j}"}')
-                        print(G.edges[f"D_{t}_{i}", f"D_{t+1}_{j}"])
                     else:
                         if score <= max_score:
                             G.add_edge(f"D_{t}_{i}", f"D_{t+1}_{j}", weight = score)

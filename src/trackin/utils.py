@@ -151,9 +151,9 @@ def delete_segment():
         if p >= 0:
             # Assign nonsense values so that it's clear that the points from the accepted track have been deleted
             if shared_state.TRACKED:
-                shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0, None])
+                shared_state.DATA[i][p] = (-1000000, -1000000, 0, 0, None)
             else:
-                shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0])
+                shared_state.DATA[i][p] = (-1000000, -1000000, 0, 0)
             # remove nodes from track
             shared_state.G.remove_node(f'D_{i}_{p}')
             # add node names to list

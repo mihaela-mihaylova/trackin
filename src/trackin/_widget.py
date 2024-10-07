@@ -19,6 +19,8 @@ csv_data = None
 images_loaded = False
 csv_loaded = False
 container = None  # Global reference to the container
+pan_direction = None  # Direction to pan the viewer
+
 
 # EVENT EMITTERS
 csv_loaded_event = EventEmitter(source=None, type_name='csv_loaded')
@@ -34,6 +36,8 @@ graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 # Create timers for handling continuous key press events
 right_timer = QTimer()
 left_timer = QTimer()
+pan_timer = QTimer()  # Timer to handle continuous scrolling
+
 
 def initialize_viewer(napari_viewer):
     """Initialize the Napari viewer object."""
@@ -42,6 +46,10 @@ def initialize_viewer(napari_viewer):
 
     # Set up key bindings for the viewer
     setup_keybindings()
+
+    # used for moving along the image
+    setup_panning_bindings(viewer)
+
 
     # Set up the timers for handling repeated key presses
     right_timer.timeout.connect(next_image)
@@ -334,7 +342,7 @@ def update_image():
 
 def overlay_points(frame_data):
     """Overlay circles on the image for each (x, y) in the frame data, with a separate layer for the track point."""
-    global viewer
+    global viewer, points_layer
 
     if frame_data.empty:
         print("No frame data provided")
@@ -462,11 +470,11 @@ def delete_detection(layer, event=None, use_key=False):
     """Delete detection or track detection based on right-click or 'D' key."""
     global clicked_index
     clicked_index = None
-
     # Determine the clicked index based on input type
     if not use_key:  # Called from mouse event
         if event.button == 2:  # Right-click
             click_position = event.position
+            print(f'clicked position:{click_position}')
             clicked_index = layer.get_value(click_position, world=True)
             if clicked_index is None:
                 return  # No valid point was clicked, exit
@@ -520,7 +528,7 @@ def delete_det_by_mouse(layer, event):
     """Delete track detection using right-click."""
     point_coords = layer.data[clicked_index].copy()
     layer.data[clicked_index] = [-1000000, -1000000]
-    
+
     if shared_state.TRACKED:
         shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0, None])
     else:
@@ -740,7 +748,6 @@ def write_updated_detections_to_file(data, updated_data_file, csv_path):
                 f.write(f"{i},{data[i][j][0]},{data[i][j][1]},{data[i][j][2]},{data[i][j][3]}\n")
     f.close()
 
-
 def handle_right(viewer):
     """Handle the Right arrow key press and release."""
     start_timer(right_timer)  # Start on key press
@@ -795,3 +802,53 @@ def update_labels():
             conns_label = None
 
 graph_updated_event.connect(update_labels)
+
+# Global variables to track key states
+active_panning_directions = {"up": False, "down": False, "left": False, "right": False}
+pan_timer = QTimer()
+
+def start_panning(direction):
+    """Start panning in a specific direction."""
+    global active_panning_directions
+    active_panning_directions[direction] = True
+    print(f"Start panning in {direction} direction")
+    if not pan_timer.isActive():
+        pan_timer.start(50)  # Update pan position every 50ms
+
+def stop_panning(direction):
+    """Stop panning in a specific direction."""
+    global active_panning_directions
+    active_panning_directions[direction] = False
+    print(f"Stop panning in {direction} direction")
+    if not any(active_panning_directions.values()):  # Stop timer if no direction is active
+        pan_timer.stop()
+
+def update_pan():
+    """Update the viewer camera position based on the active panning directions."""
+    global viewer, active_panning_directions
+    if viewer:
+        if active_panning_directions["up"]:
+            viewer.camera.center = (viewer.camera.center[0] - 10, viewer.camera.center[1])
+        if active_panning_directions["down"]:
+            viewer.camera.center = (viewer.camera.center[0] + 10, viewer.camera.center[1])
+        if active_panning_directions["left"]:
+            viewer.camera.center = (viewer.camera.center[0], viewer.camera.center[1] - 10)
+        if active_panning_directions["right"]:
+            viewer.camera.center = (viewer.camera.center[0], viewer.camera.center[1] + 10)
+
+def setup_panning_bindings(viewer):
+    """Set up keybindings for panning the viewer using Ctrl+Arrow keys."""
+    if viewer is None:
+        print("Viewer is None. Panning bindings cannot be set.")
+        return
+
+    print("Setting up panning bindings...")
+    pan_timer.timeout.connect(update_pan)
+
+    # Bind keys for panning and print debug statements
+    viewer.bind_key('Ctrl-Up', lambda event: start_panning("up"), overwrite=True)
+    viewer.bind_key('Ctrl-Down', lambda event: start_panning("down"), overwrite=True)
+    viewer.bind_key('Ctrl-Left', lambda event: start_panning("left"), overwrite=True)
+    viewer.bind_key('Ctrl-Right', lambda event: start_panning("right"), overwrite=True)
+
+    print("Panning bindings set up successfully.")
