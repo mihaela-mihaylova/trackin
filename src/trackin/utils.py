@@ -151,6 +151,9 @@ save_segment_event.connect(save_segment)
 def delete_segment():
     segment_to_delete = []
     updated_data_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE)
+    if shared_state.NUM_DETS == 0:
+        show_info('No detections left.')
+        return
     for i, p in enumerate(shared_state.track[0:shared_state.current_index+1]):
         if p >= 0:
             # Assign nonsense values so that it's clear that the points from the accepted track have been deleted

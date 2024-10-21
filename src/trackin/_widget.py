@@ -670,6 +670,7 @@ def deleteSegment(event=None):
         container.setFocus()
 
 def deleteAllConnections(event=None):
+    """Triggers the function which would delete all outgoing edges (apart from an X- or T-edge)"""
     delete_all_connections_event()
     update_image()
     graph_updated_event()
