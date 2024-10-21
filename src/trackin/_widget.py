@@ -47,10 +47,6 @@ def initialize_viewer(napari_viewer):
     # Set up key bindings for the viewer
     setup_keybindings()
 
-    # used for moving along the image
-    setup_panning_bindings(viewer)
-
-
     # Set up the timers for handling repeated key presses
     right_timer.timeout.connect(next_image)
     left_timer.timeout.connect(previous_image)
@@ -107,12 +103,14 @@ def check_and_update_image():
     if images_loaded and csv_loaded:
         update_image()
 
+# function used for loading cell images by clicking a button
 @magicgui(call_button="Load Images", auto_call=True)
 def choose_folder():
     """Open a dialog to select a folder and load images from it."""
     global images, image_files, viewer, images_loaded
     folder_path = QFileDialog.getExistingDirectory(None, "Select Folder with Images")
     if folder_path:
+        clear_detections_and_tracks()
         images, image_files = load_images_from_folder(folder_path)
         shared_state.current_index = 0
         images_loaded = True
@@ -122,6 +120,7 @@ def choose_folder():
             check_and_update_image()
             update_slider_max()
 
+# a function responsible for loading a csv file with cell positions by clicking on a button
 @magicgui(call_button="Load Detections", auto_call=True)
 def load_csv():
     global csv_loaded, csv_data
@@ -135,24 +134,8 @@ def load_csv():
     if csv_path:
         show_info("Detections are being loaded...")
         if csv_loaded:
-            #if a new csv is loaded, then the old detections should be removed
-            viewer.layers['detections'].data = np.empty((0, 2))
-            viewer.layers['track_lines'].data = []  # Clear the line data
-            # and if a file with previous tracks was loaded, this is removed
-            if shared_state.MAX_TRACK_ID is not None:
-                shared_state.track = []
-                shared_state.track_dict = {}
-                shared_state.track_lines = None
-                shared_state.G = None
-                shared_state.DATA = []
-                shared_state.NUM_DET_PER_FRAME = []
-                shared_state.TRACKED = False
-                shared_state.MAX_TRACK_ID = None
-                dets_label.setParent(None)  
-                conns_label.setParent(None)
-                dets_label = None  
-                conns_label = None
-
+            clear_detections_and_tracks()
+                
         csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -172,12 +155,14 @@ def load_csv():
         csv_loaded_event()  # Trigger CSV loaded event
 
         # Compute track lines once when CSV is loaded
+        graph_updated_event()
+
         compute_track_lines()
 
         check_and_update_image()
 
-        graph_updated_event()
-
+        
+# loads a file with already accepted tracks and adds these and any subsequent accepted tracks to a new track file
 @magicgui(call_button="Add Track File", auto_call=True)
 def load_track_file():
     """Open a dialog to select a CSV file and load a csv with tracks generated in a previous session."""
@@ -194,7 +179,6 @@ def load_track_file():
         # name for file where leftover positions are preserved
         shared_state.UPD_TRACK_FILE = f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
 
-        track_df = pd.read_csv(csv_path).astype(int)
         try:
             track_df = pd.read_csv(csv_path).astype(int)
             expected_columns = ['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']
@@ -211,7 +195,12 @@ def load_track_file():
                 return
             
             # Load the current session tracks, if any
-            check_session_file = not os.path.exists(shared_state.SESSION_FILE) or os.path.getsize(shared_state.SESSION_FILE) == 0
+            # note that first part of the checked_session_file conditions is always met, added here because otherwise an error is thrown
+            complete_path_to_session_file = os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)
+            check_session_file = (os.path.getsize(complete_path_to_session_file) == 0)
+            print(f'path exists: {os.path.exists(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))}')
+            print(f'size is 0: {os.path.getsize(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)) == 0}')
+            print(f'check_session_file:{check_session_file}')
 
             if check_session_file:
                 # If session_df is empty, save track_df directly with the updated file name
@@ -222,12 +211,13 @@ def load_track_file():
                 
             else:
                 session_df = pd.read_csv(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))
+                print(session_df)
 
                 # If session_df has data, extract the max value of track_no from track_df
                 max_track_no = track_df['track_no'].max()
                 
-                # Increment the track_no values in session_df to ensure unique values
-                session_df['track_no'] = session_df['track_no'] + max_track_no + 1  # Ensure no overlap
+                session_df['track_no'] = session_df['track_no'] + max_track_no
+                print(session_df)
                 
                 # Concatenate the DataFrames
                 updated_tracks_df = pd.concat([track_df, session_df], ignore_index=True)
@@ -244,7 +234,7 @@ def load_track_file():
         except Exception as e:
             QMessageBox.critical(None, "Error", f"An unexpected error occurred: {e}")
 
-
+# go to following image
 def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
     global viewer, container
@@ -257,6 +247,7 @@ def next_image(event=None):
     if container:
         container.setFocus()
 
+# go to previous image
 def previous_image(event=None):
     """Display the previous image in the sequence and overlay CSV data."""
     global viewer, container
@@ -269,6 +260,7 @@ def previous_image(event=None):
     if container:
         container.setFocus()
 
+# responsible for the image slider which moves when images are changed
 @magicgui(image_index={"widget_type": "Slider", "min": 0, "max": 0, "step": 1, "label": "Frame"}, auto_call=True)
 def image_slider(image_index: int = 0):
     """Update the displayed image based on the slider value."""
@@ -289,6 +281,7 @@ def update_slider_max():
         image_slider.image_index.max = 0
         image_slider.image_index.value = 0
 
+# adds white border to images to distinct it from background
 def add_white_border(image, border_size=1):
     """Add a white border around the image."""
     # Create a new image with a white border around the original image
@@ -720,21 +713,31 @@ def trackin_main():
     return container
 
 
-'''def print_all_widgets(viewer):
-    """Print the entire Qt widget hierarchy of the viewer window."""
-    from qtpy.QtWidgets import QWidget
-
-    print("Listing all widgets in the Napari viewer:")
-
-    def print_widget_tree(widget, indent=0):
-        """Recursively print widget hierarchy."""
-        print("  " * indent + f"{widget.objectName()} ({widget.__class__.__name__})")
-        for child in widget.children():
-            if isinstance(child, QWidget):
-                print_widget_tree(child, indent + 1)
-
-    print_widget_tree(viewer.window._qt_window)'''
-
+def clear_detections_and_tracks():
+    """Explicitly clear detection points and track lines from the Napari viewer."""
+    global viewer
+    
+    # Check and clear the 'detections' layer if it exists
+    if 'detections' in viewer.layers:
+        viewer.layers['detections'].data = np.empty((0, 2))
+        viewer.layers['detections'].refresh()  # Ensure the layer refreshes
+    
+    # Check and clear the 'track_lines' layer if it exists
+    if 'track_lines' in viewer.layers:
+        viewer.layers['track_lines'].data = np.empty((0, 2, 2))
+        viewer.layers['track_lines'].refresh()  # Ensure the layer refreshes
+    
+    # Reset shared state as needed
+    shared_state.DATA = []  # Explicitly set to an empty list rather than None
+    shared_state.track = []
+    shared_state.track_dict = {}
+    shared_state.track_lines = None
+    shared_state.NUM_DET_PER_FRAME = []
+    shared_state.TRACKED = False
+    shared_state.MAX_TRACK_ID = None
+    shared_state.G = None
+    
+    print("Cleared all detections and tracks.")
 
 def write_updated_detections_to_file(data, updated_data_file, csv_path):
     # save up-to-date version of DATA
@@ -802,53 +805,3 @@ def update_labels():
             conns_label = None
 
 graph_updated_event.connect(update_labels)
-
-# Global variables to track key states
-active_panning_directions = {"up": False, "down": False, "left": False, "right": False}
-pan_timer = QTimer()
-
-def start_panning(direction):
-    """Start panning in a specific direction."""
-    global active_panning_directions
-    active_panning_directions[direction] = True
-    print(f"Start panning in {direction} direction")
-    if not pan_timer.isActive():
-        pan_timer.start(50)  # Update pan position every 50ms
-
-def stop_panning(direction):
-    """Stop panning in a specific direction."""
-    global active_panning_directions
-    active_panning_directions[direction] = False
-    print(f"Stop panning in {direction} direction")
-    if not any(active_panning_directions.values()):  # Stop timer if no direction is active
-        pan_timer.stop()
-
-def update_pan():
-    """Update the viewer camera position based on the active panning directions."""
-    global viewer, active_panning_directions
-    if viewer:
-        if active_panning_directions["up"]:
-            viewer.camera.center = (viewer.camera.center[0] - 10, viewer.camera.center[1])
-        if active_panning_directions["down"]:
-            viewer.camera.center = (viewer.camera.center[0] + 10, viewer.camera.center[1])
-        if active_panning_directions["left"]:
-            viewer.camera.center = (viewer.camera.center[0], viewer.camera.center[1] - 10)
-        if active_panning_directions["right"]:
-            viewer.camera.center = (viewer.camera.center[0], viewer.camera.center[1] + 10)
-
-def setup_panning_bindings(viewer):
-    """Set up keybindings for panning the viewer using Ctrl+Arrow keys."""
-    if viewer is None:
-        print("Viewer is None. Panning bindings cannot be set.")
-        return
-
-    print("Setting up panning bindings...")
-    pan_timer.timeout.connect(update_pan)
-
-    # Bind keys for panning and print debug statements
-    viewer.bind_key('Ctrl-Up', lambda event: start_panning("up"), overwrite=True)
-    viewer.bind_key('Ctrl-Down', lambda event: start_panning("down"), overwrite=True)
-    viewer.bind_key('Ctrl-Left', lambda event: start_panning("left"), overwrite=True)
-    viewer.bind_key('Ctrl-Right', lambda event: start_panning("right"), overwrite=True)
-
-    print("Panning bindings set up successfully.")
