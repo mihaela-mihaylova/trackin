@@ -343,7 +343,10 @@ def overlay_points(frame_data):
     # Extract (y, x) positions from the dataframe
     points = np.array([frame_data['y'], frame_data['x']]).T
     curr_track = shared_state.track
-
+    if curr_track is None:
+        show_info('No detections left.')
+        return
+    
     # --- Main Points Layer ---
     if 'detections' in viewer.layers:
         points_layer = viewer.layers['detections']
@@ -731,7 +734,6 @@ def clear_detections_and_tracks():
     # Reset shared state as needed
     shared_state.DATA = []  # Explicitly set to an empty list rather than None
     shared_state.track = []
-    shared_state.track_dict = {}
     shared_state.track_lines = None
     shared_state.NUM_DET_PER_FRAME = []
     shared_state.TRACKED = False
@@ -785,7 +787,7 @@ def update_labels():
     if shared_state.G is not None:
         # Compute the number of detections and connections
         shared_state.NUM_DETS = shared_state.G.number_of_nodes() - 2 - 2 * (len(shared_state.DATA) - 1)
-        shared_state.NUM_CONN = shared_state.G.number_of_edges() - 2 * (len(shared_state.DATA))
+        shared_state.NUM_CONN = shared_state.G.number_of_edges() - 2 * (len(shared_state.DATA) - 1)
 
         # Check if labels exist, if not create and add them to the layout
         if dets_label is None:

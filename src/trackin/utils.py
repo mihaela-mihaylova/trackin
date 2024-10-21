@@ -22,21 +22,22 @@ import os
 		return -1'''
 
 def track_to_posarray( trackp ):
-	data = shared_state.DATA
-	shared_state.track = [-1] * len( data )
-	for n in trackp:
-		if shared_state.G.nodes[n]["type"]=="D":
-			shared_state.track[shared_state.G.nodes[n]["time_point"]] = shared_state.G.nodes[n]["idx"]
-	return shared_state.track
+    if trackp is None:
+        show_info('No detections left')
+        shared_state.track = None
+    else:
+        data = shared_state.DATA
+        shared_state.track = [-1] * len( data )
+        for n in trackp:
+            if shared_state.G.nodes[n]["type"]=="D":
+                shared_state.track[shared_state.G.nodes[n]["time_point"]] = shared_state.G.nodes[n]["idx"]
+        return shared_state.track
 
 def send_track():
 	# load up-to-date values of variables
 	data = shared_state.DATA
 	graph = shared_state.G
 	shared_state.track = track_to_posarray( generate_track( graph ) )
-	shared_state.track_dict = dict(track=shared_state.track,
-		npos=shared_state.G.number_of_nodes()-2-2*(len(data)-1),
-		nconn=shared_state.G.number_of_edges()-2*(len(data)))
 
 #built_graph_event.connect(send_track)
 
@@ -47,6 +48,9 @@ def send_track():
 def accept_track():
     shared_state.N_TRACKS += 1
     track = shared_state.track
+    if track is None:
+        show_info('No detections left.')
+        return
     track_with_nodes = []
     session_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)
     if shared_state.MAX_TRACK_ID is not None:
