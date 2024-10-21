@@ -499,9 +499,9 @@ def delete_det_by_key(layer):
     layer.data[clicked_index] = [-1000000, -1000000]
 
     if shared_state.TRACKED:
-        shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0, None])
+        shared_state.DATA[shared_state.current_index][clicked_index] = [-1000000, -1000000, 0, 0, None]
     else:
-        shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0])
+        shared_state.DATA[shared_state.current_index][clicked_index] = [-1000000, -1000000, 0, 0]
 
     node_name = f'D_{shared_state.current_index}_{clicked_index}'
     shared_state.G.remove_node(node_name)
@@ -509,10 +509,11 @@ def delete_det_by_key(layer):
     # Update the track state
     shared_state.track[shared_state.current_index] = -1
     remove_track_node_event()
-    update_image()
 
     # Refresh the layer to update the visual display
     layer.refresh()
+    update_image()
+
     print(f"Removed node {node_name} with coordinates {point_coords}.")
 
 
@@ -522,14 +523,15 @@ def delete_det_by_mouse(layer, event):
     layer.data[clicked_index] = [-1000000, -1000000]
 
     if shared_state.TRACKED:
-        shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0, None])
+        shared_state.DATA[shared_state.current_index][clicked_index] = [-1000000, -1000000, 0, 0, None]
     else:
-        shared_state.DATA[shared_state.current_index].append([-1000000, -1000000, 0, 0])
+        shared_state.DATA[shared_state.current_index][clicked_index] = [-1000000, -1000000, 0, 0]
 
     node_name = f'D_{shared_state.current_index}_{clicked_index}'
     shared_state.G.remove_node(node_name)
 
     layer.refresh()
+    update_image()
     print(f"Removed node {node_name} with coordinates {point_coords}.")
 
     # Mark the event as handled to stop further processing
