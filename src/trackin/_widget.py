@@ -54,14 +54,15 @@ def initialize_viewer(napari_viewer):
 
  # adds these displacement columns with value 0, in case they are not present
 def check_and_add_displ_cols(df):
+    """Add displ_x and add displ_y if these are not present in loaded df"""
     if 'displ_x' not in df.columns:
         df['displ_x'] = 0
     if 'displ_y' not in df.columns:
         df['displ_y'] = 0
     return df
 
-# takes a df and turns it into a list of lists, necessary for the way data is read in the tool
 def generate_positions_list(df, folder_to_save):
+    """Load positions data into a list of lists, required by our tracking algorithm"""
     for _, dft in df.groupby('tframe'):
         positions = []
         for _, row in dft.iterrows():
@@ -103,7 +104,6 @@ def check_and_update_image():
     if images_loaded and csv_loaded:
         update_image()
 
-# function used for loading cell images by clicking a button
 @magicgui(call_button="Load Images", auto_call=True)
 def choose_folder():
     """Open a dialog to select a folder and load images from it."""
@@ -120,7 +120,6 @@ def choose_folder():
             check_and_update_image()
             update_slider_max()
 
-# a function responsible for loading a csv file with cell positions by clicking on a button
 @magicgui(call_button="Load Detections", auto_call=True)
 def load_csv():
     global csv_loaded, csv_data

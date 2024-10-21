@@ -100,7 +100,7 @@ accept_track_event.connect(accept_track)
 # remove all the obsolete edges connected to nodes in a track segment
 def save_segment():
     """Save the currently defined segment to the graph."""
-    s = shared_state.track[0:shared_state.current_index]
+    s = shared_state.track[0:shared_state.current_index+1]
     if len(s) > 1:
         for i in range(len(s) - 1):
             if s[i] == -1 or s[i + 1] == -1:
@@ -123,7 +123,7 @@ def save_segment():
 
 def save_segment_without_update():
     """Save the currently defined segment to the graph."""
-    s = shared_state.track[0:shared_state.current_index]
+    s = shared_state.track[0:shared_state.current_index+1]
     if len(s) > 1:
         for i in range(len(s) - 1):
             if s[i] == -1 or s[i + 1] == -1:
