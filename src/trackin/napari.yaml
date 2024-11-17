@@ -5,8 +5,14 @@ contributions:
     - id: trackin.trackin_main
       title: Trackin
       python_name: trackin._widget:trackin_main
+    - id: trackin.add_track
+      title: AddTrack
+      python_name: trackin._widget:load_track_file
 
   widgets:
     - command: trackin.trackin_main
       display_name: Trackin
-      autogenerate: false
+      autogenerate: true
+    - command: trackin.add_track
+      display_name: AddTrack
+      autogenerate: true
