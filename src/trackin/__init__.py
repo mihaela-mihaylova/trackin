@@ -1,13 +1,14 @@
-# __init__.py
-
 import napari
 
-from ._widget import initialize_viewer, trackin_main
-from .utils import build_graph  
+from qtpy.QtWidgets import QWidget, QVBoxLayout, QPushButton
+from napari_plugin_engine import napari_hook_implementation
+
+# from ._widget import initialize_viewer
+
+# Get the current viewer
+viewer = napari.current_viewer()
 
 
-# Initialize the Napari viewer
-viewer = napari.Viewer()
 
 # Pass the viewer object to initialize the viewer in widgets
-initialize_viewer(viewer)
+# initialize_viewer(viewer)
