@@ -1,0 +1,2 @@
+MAX_SCORE = 1600
+SCORE_FUNC = 'squared'
