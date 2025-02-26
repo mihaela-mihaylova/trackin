@@ -94,7 +94,24 @@ class TrackingWidget(QWidget):
             # TODO: How to update the graph and the tracks?
 
     def on_frame_change(self, event):
-        print("Changed frame")
+        current_tframe = event.value[0]
+        point_y, point_x, _, _ = self.data[current_tframe][
+            self.track_pos[current_tframe]
+        ]
+
+        points_layer = self.viewer.layers["Detections"]
+        point_index = np.where(
+            (points_layer.data == (current_tframe, point_y, point_x)).all(
+                axis=1
+            )
+        )[0][0]
+
+        points_layer.size = np.repeat(20, len(points_layer.size))
+        points_layer.size[point_index] = 30
+
+        # TODO: Change the face color here.
+
+        points_layer.refresh()
 
     @staticmethod
     def _check_and_add_displ_cols(df):
@@ -122,7 +139,9 @@ class TrackingWidget(QWidget):
                 None, "Select CSV File", "", "CSV Files (*.csv)"
             )
 
-            show_info("Loading detections and generating tracks. Please wait...")
+            show_info(
+                "Loading detections and generating tracks. Please wait..."
+            )
 
             # TODO: If there are detections already plotted remove them.
 
@@ -139,8 +158,8 @@ class TrackingWidget(QWidget):
             self.n_detect_per_frame = [len(frame) for frame in self.data]
             self.G = build_graph_v2(self.data, MAX_SCORE, SCORE_FUNC, tracked)
 
-            track = generate_track(self.G)
-            track_pos = track_to_posarray(self.G, track, self.data)
+            self.track = generate_track(self.G)
+            self.track_pos = track_to_posarray(self.G, self.track, self.data)
 
             # Step 3: Add all the detections.
             points_layer = self.viewer.add_points(
@@ -157,7 +176,7 @@ class TrackingWidget(QWidget):
             points_layer.events.data.connect(self.on_points_data_change)
 
             # Step 5: Add the first track
-            lines = track_to_lines(self.G, track)
+            lines = track_to_lines(self.G, self.track)
             self.viewer.add_shapes(
                 lines,
                 shape_type="line",
