@@ -55,6 +55,7 @@ class TrackingWidget(QWidget):
 
     def on_points_data_change(self, event):
         """Event handler for adding and removing detections"""
+
         if event.action == "adding":
             pass
 
@@ -99,6 +100,9 @@ class TrackingWidget(QWidget):
         return df
 
     def add_detections_file(self):
+        """
+        Functionality for adding detections from a CSV file. Used by the "Add Detections" button.
+        """
         # Step 0: Check if images are already loaded. If not prompt to load images.
         if len(self.viewer.layers) == 0:
             QMessageBox.information(
@@ -112,7 +116,7 @@ class TrackingWidget(QWidget):
                 None, "Select CSV File", "", "CSV Files (*.csv)"
             )
 
-            show_info("Detections are being loaded...")
+            show_info("Loading detections and generating tracks. Please wait...")
 
             # TODO: If there are detections already plotted remove them.
 
@@ -155,7 +159,12 @@ class TrackingWidget(QWidget):
                 face_color="transparent",
             )
 
+            show_info("Done!")
+
     def add_tracks(self):
+        """
+        Functionality for adding tracks to the images. Used by the "Add Track File" button.
+        """
         print("Button 2 clicked!")
 
 
