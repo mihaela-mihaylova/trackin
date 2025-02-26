@@ -15,9 +15,19 @@ from qtpy.QtWidgets import (
 )
 
 from .shared_state import shared_state
-from .tracking import find_node_by_attributes, add_node_with_dummy_edges, generate_track
-from .utils_v2 import build_graph_v2, generate_positions_list, track_to_posarray, track_to_lines
+from .tracking import (
+    find_node_by_attributes,
+    add_node_with_dummy_edges,
+    generate_track,
+)
+from .utils_v2 import (
+    build_graph_v2,
+    generate_positions_list,
+    track_to_posarray,
+    track_to_lines,
+)
 from .config import MAX_SCORE, SCORE_FUNC
+
 
 class TrackingWidget(QWidget):
     def __init__(self):
@@ -44,16 +54,48 @@ class TrackingWidget(QWidget):
         self.detections = None
 
     def on_points_data_change(self, event):
-        """Event handler for points data change"""
-        print("Points data changed!")
+        """Event handler for adding and removing detections"""
+        if event.action == "adding":
+            pass
+
+        elif event.action == "added":
+            tframe, y, x = event.value[-1]
+
+            tframe = int(tframe)
+            y = int(y)
+            x = int(x)
+
+            self.data[tframe].append([y, x, 0, 0])
+
+            self.G = add_node_with_dummy_edges(
+                node=f"D_{tframe}_{self.n_detect_per_frame[tframe]}",
+                time_point=tframe,
+                idx=self.n_detect_per_frame[tframe],
+                y=int(y),
+                x=int(x),
+                displ_y=0,
+                displ_x=0,
+                G=self.G,
+                highest_frame_id=len(self.data) - 1,
+                max_score=MAX_SCORE,
+            )
+            self.n_detect_per_frame[tframe] += 1
+
+            # TODO: How to update the graph and the tracks?
+
+        elif event.action == "removing":
+            # TODO: Can use remove multiple detections at once?
+            tframe, y, x = event.source._data[event.data_indices[0]]
+
+            # TODO: How to update the graph and the tracks?
 
     @staticmethod
     def _check_and_add_displ_cols(df):
         """Add displ_x and add displ_y if these are not present in loaded df"""
-        if 'displ_x' not in df.columns:
-            df['displ_x'] = 0
-        if 'displ_y' not in df.columns:
-            df['displ_y'] = 0
+        if "displ_x" not in df.columns:
+            df["displ_x"] = 0
+        if "displ_y" not in df.columns:
+            df["displ_y"] = 0
         return df
 
     def add_detections_file(self):
@@ -83,22 +125,35 @@ class TrackingWidget(QWidget):
                 tracked = False
 
             # Step 2: Generate the graph and one track
-            data = generate_positions_list(df=csv_data, tracked=tracked)
-            G = build_graph_v2(data, MAX_SCORE, SCORE_FUNC, tracked)
+            self.data = generate_positions_list(df=csv_data, tracked=tracked)
+            self.n_detect_per_frame = [len(frame) for frame in self.data]
+            self.G = build_graph_v2(self.data, MAX_SCORE, SCORE_FUNC, tracked)
 
-            track = generate_track(G)
-            track_pos = track_to_posarray(G, track, data)
+            track = generate_track(self.G)
+            track_pos = track_to_posarray(self.G, track, self.data)
 
             # Step 3: Add all the detections and the track to the viewer. Also add event handlers to them.
-            points_layer = self.viewer.add_points(csv_data.loc[:, ['tframe', 'y', 'x']].values, size=20, face_color='transparent',
-                                   border_color='white', border_width=1,
-                                   border_width_is_relative=False,
-                                   name='Detections')
+            points_layer = self.viewer.add_points(
+                csv_data.loc[:, ["tframe", "y", "x"]].values,
+                size=20,
+                face_color="transparent",
+                border_color="white",
+                border_width=1,
+                border_width_is_relative=False,
+                name="Detections",
+            )
 
             points_layer.events.data.connect(self.on_points_data_change)
 
-            lines = track_to_lines(G, track)
-            self.viewer.add_shapes(lines, shape_type='line', edge_width=1, edge_color='white', name='Tracks', face_color='transparent')
+            lines = track_to_lines(self.G, track)
+            self.viewer.add_shapes(
+                lines,
+                shape_type="line",
+                edge_width=1,
+                edge_color="white",
+                name="Tracks",
+                face_color="transparent",
+            )
 
     def add_tracks(self):
         print("Button 2 clicked!")

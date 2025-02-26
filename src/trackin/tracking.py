@@ -1,12 +1,11 @@
 import sys
-import networkx as nx
 import random
 import math
-import numpy as np
+
 import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as np
 import pandas as pd
-import heapq
-from datetime import datetime
 
 
 # a basic score function to be used when generating edges
@@ -276,6 +275,7 @@ def add_node_with_dummy_edges(
     else:
         G.add_edge(f"Y_{frame_id-1}", node, weight=max_score)
         G.add_edge(node, "T", weight=max_score)
+    return G
 
 
 def remove_all_successors(graph, node, exception_node):
