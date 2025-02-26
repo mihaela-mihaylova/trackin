@@ -34,6 +34,9 @@ class TrackingWidget(QWidget):
         super().__init__()
         self.viewer = napari.current_viewer()
 
+        # Show the first frame.
+        self.viewer.dims.set_current_step(axis=0, value=0)
+
         # Set up a vertical layout
         layout = QVBoxLayout()
         self.setLayout(layout)
@@ -90,6 +93,9 @@ class TrackingWidget(QWidget):
 
             # TODO: How to update the graph and the tracks?
 
+    def on_frame_change(self, event):
+        print("Changed frame")
+
     @staticmethod
     def _check_and_add_displ_cols(df):
         """Add displ_x and add displ_y if these are not present in loaded df"""
@@ -136,7 +142,7 @@ class TrackingWidget(QWidget):
             track = generate_track(self.G)
             track_pos = track_to_posarray(self.G, track, self.data)
 
-            # Step 3: Add all the detections and the track to the viewer. Also add event handlers to them.
+            # Step 3: Add all the detections.
             points_layer = self.viewer.add_points(
                 csv_data.loc[:, ["tframe", "y", "x"]].values,
                 size=20,
@@ -147,8 +153,10 @@ class TrackingWidget(QWidget):
                 name="Detections",
             )
 
+            # Step 4: Add event hander for changes to point layer
             points_layer.events.data.connect(self.on_points_data_change)
 
+            # Step 5: Add the first track
             lines = track_to_lines(self.G, track)
             self.viewer.add_shapes(
                 lines,
@@ -158,6 +166,9 @@ class TrackingWidget(QWidget):
                 name="Tracks",
                 face_color="transparent",
             )
+
+            # Step 6: Add event handler for moving between frames.
+            self.viewer.dims.events.current_step.connect(self.on_frame_change)
 
             show_info("Done!")
 
