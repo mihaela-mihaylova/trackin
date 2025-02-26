@@ -43,6 +43,10 @@ class TrackingWidget(QWidget):
         # Attributes
         self.detections = None
 
+    def on_points_data_change(self, event):
+        """Event handler for points data change"""
+        print("Points data changed!")
+
     @staticmethod
     def _check_and_add_displ_cols(df):
         """Add displ_x and add displ_y if these are not present in loaded df"""
@@ -85,11 +89,13 @@ class TrackingWidget(QWidget):
             track = generate_track(G)
             track_pos = track_to_posarray(G, track, data)
 
-            # Step 3: Add all the detections and the track to the viewer.
-            self.viewer.add_points(csv_data.loc[:, ['tframe', 'y', 'x']].values, size=20, face_color='transparent',
+            # Step 3: Add all the detections and the track to the viewer. Also add event handlers to them.
+            points_layer = self.viewer.add_points(csv_data.loc[:, ['tframe', 'y', 'x']].values, size=20, face_color='transparent',
                                    border_color='white', border_width=1,
                                    border_width_is_relative=False,
                                    name='Detections')
+
+            points_layer.events.data.connect(self.on_points_data_change)
 
             lines = track_to_lines(G, track)
             self.viewer.add_shapes(lines, shape_type='line', edge_width=1, edge_color='white', name='Tracks', face_color='transparent')
