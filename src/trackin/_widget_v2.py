@@ -19,7 +19,6 @@ from .tracking import find_node_by_attributes, add_node_with_dummy_edges, genera
 from .utils_v2 import build_graph_v2, generate_positions_list, track_to_posarray, track_to_lines
 from .config import MAX_SCORE, SCORE_FUNC
 
-# Add buttons to the viewer
 class TrackingWidget(QWidget):
     def __init__(self):
         super().__init__()
@@ -54,7 +53,7 @@ class TrackingWidget(QWidget):
         return df
 
     def add_detections_file(self):
-        # Check if images are already loaded.
+        # Step 0: Check if images are already loaded. If not prompt to load images.
         if len(self.viewer.layers) == 0:
             QMessageBox.information(
                 None,
@@ -62,6 +61,7 @@ class TrackingWidget(QWidget):
                 "Before adding detections, images need to be loaded. File > Open Files as Stack ",
             )
         else:
+            # Step 1: Load the detections file
             csv_path, _ = QFileDialog.getOpenFileName(
                 None, "Select CSV File", "", "CSV Files (*.csv)"
             )
@@ -78,12 +78,14 @@ class TrackingWidget(QWidget):
             else:
                 tracked = False
 
+            # Step 2: Generate the graph and one track
             data = generate_positions_list(df=csv_data, tracked=tracked)
             G = build_graph_v2(data, MAX_SCORE, SCORE_FUNC, tracked)
 
             track = generate_track(G)
             track_pos = track_to_posarray(G, track, data)
 
+            # Step 3: Add all the detections and the track to the viewer.
             self.viewer.add_points(csv_data.loc[:, ['tframe', 'y', 'x']].values, size=20, face_color='transparent',
                                    border_color='white', border_width=1,
                                    border_width_is_relative=False,
