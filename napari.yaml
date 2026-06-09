@@ -1,0 +1,12 @@
+name: trackin
+display_name: Trackin
+contributions:
+  commands:
+    - id: trackin.trackin_main
+      title: Trackin
+      python_name: trackin._widget:trackin_main
+
+  widgets:
+    - command: trackin.trackin_main
+      display_name: Trackin
+      autogenerate: false
