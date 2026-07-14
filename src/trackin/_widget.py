@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
-from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QLabel  
+from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QLabel, QPushButton, QDialog
 from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
@@ -118,6 +118,12 @@ def choose_folder():
             check_and_update_image()
             update_slider_max()
 
+choose_folder.call_button.native.setToolTip(
+    "Select a folder of image frames.\n"
+    "Files must be named with numeric filenames (e.g. 0.png, 1.png, ...),\n"
+    "one per frame, using a supported format: jpg, jpeg, png, tif, tiff, bmp, gif."
+)
+
 @magicgui(call_button="Load Detections", auto_call=True)
 def load_csv():
     global csv_loaded, csv_data
@@ -158,7 +164,13 @@ def load_csv():
 
         check_and_update_image()
 
-        
+load_csv.call_button.native.setToolTip(
+    "Select a CSV of detections for the loaded image frames.\n"
+    "Required columns: tframe, y, x.\n"
+    "Optional columns: displ_y, displ_x (default to 0 if omitted),\n"
+    "and track_no (include it if these detections are already tracked)."
+)
+
 # loads a file with already accepted tracks and adds these and any subsequent accepted tracks to a new track file
 @magicgui(call_button="Add Track File", auto_call=True)
 def load_track_file():
@@ -230,6 +242,13 @@ def load_track_file():
             return
         except Exception as e:
             QMessageBox.critical(None, "Error", f"An unexpected error occurred: {e}")
+
+load_track_file.call_button.native.setToolTip(
+    "Select a CSV of tracks accepted in a previous session, so new tracks\n"
+    "continue numbering from where that session left off.\n"
+    "Must have exactly these columns, in this order:\n"
+    "tframe, y, x, displ_y, displ_x, track_no."
+)
 
 # go to following image
 def next_image(event=None):
@@ -692,12 +711,94 @@ def setup_keybindings():
     viewer.bind_key('Shift-Z', deleteSegment) # delete a whole segment
     viewer.bind_key('X', deleteAllConnections) # delete all connections from a node, apart from the D-X edge
 
+def show_help():
+    """Display a dialog listing the keyboard and mouse shortcuts."""
+
+    def section(title, rows):
+        row_html = "".join(
+            f'<tr><td style="padding:2px 18px 2px 0; white-space:nowrap;">'
+            f'<code style="background:#3a3a3a; color:#eee; padding:1px 6px; '
+            f'border-radius:3px;">{key}</code></td>'
+            f'<td style="padding:2px 0;">{desc}</td></tr>'
+            for key, desc in rows
+        )
+        return (
+            f'<p style="margin:14px 0 4px 0; font-size:12pt; font-weight:600;">{title}</p>'
+            f'<table style="border-collapse:collapse;">{row_html}</table>'
+        )
+
+    help_html = (
+        '<div style="font-size:10.5pt;">'
+        + section(
+            "Navigation",
+            [
+                ("Right Arrow", "Next frame (hold to scroll continuously)"),
+                ("Left Arrow", "Previous frame (hold to scroll continuously)"),
+                ("Slider", "Jump to a specific frame"),
+            ],
+        )
+        + section(
+            "Mouse (on the image)",
+            [
+                ("Left-click", "Add the clicked detection to the current track and advance to the next frame"),
+                ("Shift + Left-click", "Add a new detection at that position"),
+                ("Right-click", "Delete the clicked detection"),
+            ],
+        )
+        + section(
+            "Keyboard shortcuts",
+            [
+                ("D", "Delete the tracked detection in the current frame"),
+                ("Shift+Q", "Accept the current track"),
+                ("W", "Save the current segment (up to the current frame)"),
+                ("Shift+Z", "Delete the current segment (up to the current frame)"),
+                ("X", "Delete all outgoing connections from the current node"),
+            ],
+        )
+        + "</div>"
+    )
+
+    dialog = QDialog(None)
+    dialog.setWindowTitle("Trackin Help")
+    dialog.setMinimumWidth(480)
+
+    layout = QVBoxLayout(dialog)
+    label = QLabel(help_html)
+    label.setTextFormat(Qt.RichText)
+    label.setWordWrap(True)
+    layout.addWidget(label)
+
+    close_button = QPushButton("Close")
+    close_button.clicked.connect(dialog.accept)
+    layout.addWidget(close_button)
+
+    dialog.exec_()
+
 def trackin_main():
     """Main function to show the plugin interface."""
     global container, dets_label, conns_label
     container = QWidget()
     layout = QVBoxLayout(container)  # Create a vertical layout
-    
+
+    # Small round help button, opens a dialog listing keyboard/mouse shortcuts
+    help_button = QPushButton("?")
+    help_button.setFixedSize(24, 24)
+    help_button.setToolTip("Help")
+    help_button.setCursor(Qt.PointingHandCursor)
+    help_button.setStyleSheet(
+        "QPushButton {"
+        "  background-color: #2b7de9;"
+        "  color: white;"
+        "  border: none;"
+        "  border-radius: 12px;"
+        "  font-weight: bold;"
+        "}"
+        "QPushButton:hover { background-color: #4a90f0; }"
+        "QPushButton:pressed { background-color: #1c5fc2; }"
+    )
+    help_button.clicked.connect(show_help)
+    layout.addWidget(help_button, alignment=Qt.AlignRight)
+
     # Use the magicgui widgets and add them directly to the layout
     layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
     layout.addWidget(load_csv.native)
