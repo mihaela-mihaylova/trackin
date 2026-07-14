@@ -9,7 +9,7 @@ import numpy as np
 from napari.utils.events import EventEmitter
 from .shared_state import shared_state
 from datetime import datetime
-from .tracking import find_node_by_attributes, add_node_with_dummy_edges
+from .tracking import add_node_with_dummy_edges
 from napari.utils.notifications import show_info
 
 viewer = None
@@ -19,7 +19,6 @@ csv_data = None
 images_loaded = False
 csv_loaded = False
 container = None  # Global reference to the container
-pan_direction = None  # Direction to pan the viewer
 
 
 # EVENT EMITTERS
@@ -36,7 +35,6 @@ graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 # Create timers for handling continuous key press events
 right_timer = QTimer()
 left_timer = QTimer()
-pan_timer = QTimer()  # Timer to handle continuous scrolling
 
 
 def initialize_viewer(napari_viewer):

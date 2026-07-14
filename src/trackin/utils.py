@@ -1,11 +1,7 @@
-import sys
 import networkx as nx
-import random
 import math
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-import heapq
 from datetime import datetime
 from .tracking import generate_graph, generate_track, generate_tracks, remove_all_successors
 from ._widget import csv_loaded_event, remove_track_node_event, accept_track_event, delete_segment_event, save_segment_event, delete_all_connections_event
@@ -14,12 +10,6 @@ from napari.utils.notifications import show_info
 from napari.utils.events import EventEmitter
 import os
 
-
-'''def safeindex(l,i):
-	try:
-		return l.index(i)
-	except ValueError: 
-		return -1'''
 
 def track_to_posarray( trackp ):
     if trackp is None:
@@ -34,16 +24,10 @@ def track_to_posarray( trackp ):
         return shared_state.track
 
 def send_track():
-	# load up-to-date values of variables
-	data = shared_state.DATA
-	graph = shared_state.G
-	shared_state.track = track_to_posarray( generate_track( graph ) )
-
-#built_graph_event.connect(send_track)
-
-'''def update_counts():
-	return dict(npos=G.number_of_nodes()-2-2*(len(DATA)-1),
-		nconn=G.number_of_edges()-2*(len(DATA)))'''
+    # load up-to-date values of variables
+    data = shared_state.DATA
+    graph = shared_state.G
+    shared_state.track = track_to_posarray( generate_track( graph ) )
 
 def accept_track():
     shared_state.N_TRACKS += 1
@@ -208,7 +192,6 @@ def build_graph():
 
     print(f'value of shared.TRACKED in utils:{shared_state.TRACKED}')
     # Generate the graph using the updated global variables
-    #G = generate_graph(data, max_score, score_func, tracked)
     shared_state.G = generate_graph(data, max_score, score_func, tracked)
     
 def track():
@@ -219,10 +202,6 @@ def track():
 
     # Ensure the graph was actually built
     send_track()
-	
+
 csv_loaded_event.connect(track)
 remove_track_node_event.connect(track)
-
-'''@app.route('/frame/<path:path>', methods=['GET'])
-def frame(path):
-    return send_from_directory( FRAMES_DIR, path )'''
