@@ -10,6 +10,12 @@ dist/
 *.egg
 .eggs/
 MANIFEST
+/PKG-INFO
+/SOURCES.txt
+/dependency_links.txt
+/entry_points.txt
+/requires.txt
+/top_level.txt
 
 # setuptools_scm generated version file
 src/trackin/_version.py
