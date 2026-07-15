@@ -208,7 +208,18 @@ def load_csv():
 
         compute_track_lines()
 
+        # Start inspection from the beginning, regardless of the frame
+        # the viewer happened to be on before these detections were loaded
+        shared_state.current_index = 0
+        image_slider.image_index.value = shared_state.current_index
+
         check_and_update_image()
+
+        # Move keyboard focus off the slider's editable readout (left focused,
+        # and blinking its text cursor, after the file dialog closes) and back
+        # onto the main panel so shortcuts like arrow keys work immediately
+        if container:
+            container.setFocus()
 
 load_csv.call_button.native.setToolTip(
     "Select a CSV of detections for the loaded image frames.\n"
