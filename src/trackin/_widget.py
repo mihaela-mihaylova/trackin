@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
-from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QLabel, QPushButton, QDialog
+from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QLabel, QPushButton, QDialog, QSlider
 from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
@@ -42,6 +42,9 @@ graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 # Create timers for handling continuous key press events
 right_timer = QTimer()
 left_timer = QTimer()
+REPEAT_INITIAL_DELAY = 350  # ms to hold a key before continuous scrolling kicks in
+right_key_held = False
+left_key_held = False
 
 
 def clamp_camera_zoom(event=None):
@@ -330,6 +333,20 @@ def image_slider(image_index: int = 0):
         # Refocus the container after slider change
         if container:
             container.setFocus()
+
+def _frame_slider_wheel_event(qevent):
+    """Step exactly one frame per wheel event, ignoring the reported scroll
+    magnitude -- trackpads can report a delta worth more than one notch for
+    a single gesture, which otherwise skips frames."""
+    delta = qevent.angleDelta().y()
+    if delta > 0:
+        previous_image()
+    elif delta < 0:
+        next_image()
+    qevent.accept()
+
+for _qslider in image_slider.image_index.native.findChildren(QSlider):
+    _qslider.wheelEvent = _frame_slider_wheel_event
 
 def update_slider_max():
     """Update the maximum value of the slider based on the number of images."""
@@ -898,16 +915,34 @@ def write_updated_detections_to_file(data, updated_data_file, csv_path):
                 f.write(f"{i},{data[i][j][0]},{data[i][j][1]},{data[i][j][2]},{data[i][j][3]}\n")
     f.close()
 
+def _maybe_start_repeat_right():
+    """Only start auto-repeat if the key is still held after the initial delay."""
+    if right_key_held:
+        start_timer(right_timer)
+
+def _maybe_start_repeat_left():
+    """Only start auto-repeat if the key is still held after the initial delay."""
+    if left_key_held:
+        start_timer(left_timer)
+
 def handle_right(viewer):
     """Handle the Right arrow key press and release."""
-    start_timer(right_timer)  # Start on key press
+    global right_key_held
+    right_key_held = True
+    next_image()  # A single tap always advances exactly one frame
+    QTimer.singleShot(REPEAT_INITIAL_DELAY, _maybe_start_repeat_right)  # Auto-repeat only if held
     yield  # Wait for key release
+    right_key_held = False
     stop_timer(right_timer)  # Stop on key release
 
 def handle_left(viewer):
     """Handle the Left arrow key press and release."""
-    start_timer(left_timer)  # Start on key press
+    global left_key_held
+    left_key_held = True
+    previous_image()  # A single tap always advances exactly one frame
+    QTimer.singleShot(REPEAT_INITIAL_DELAY, _maybe_start_repeat_left)  # Auto-repeat only if held
     yield  # Wait for key release
+    left_key_held = False
     stop_timer(left_timer)  # Stop on key release
 
 def start_timer(timer):
