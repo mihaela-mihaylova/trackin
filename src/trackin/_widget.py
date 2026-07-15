@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
-from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QLabel, QPushButton, QDialog, QSlider
+from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QDialog, QSlider, QLineEdit, QApplication
 from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
@@ -216,6 +216,8 @@ def load_csv():
 
         check_and_update_image()
 
+        update_file_paths_display()
+
         # Move keyboard focus off the slider's editable readout (left focused,
         # and blinking its text cursor, after the file dialog closes) and back
         # onto the main panel so shortcuts like arrow keys work immediately
@@ -306,6 +308,8 @@ def load_track_file():
             if track_file_label is not None:
                 track_file_label.setText(f"Track file loaded: {os.path.basename(csv_path)}")
                 track_file_label.setToolTip(csv_path)
+
+            update_file_paths_display()
 
         except pd.errors.ParserError as e:
             QMessageBox.critical(None, "File Error", f"The selected file is not a valid CSV or is malformed: {e}")
@@ -861,9 +865,64 @@ def show_help():
 
 track_file_label = None  # Shows which track file was last loaded, if any
 
+# Persistent, copyable output-file-path rows (see create_path_row / update_file_paths_display)
+leftover_row = None
+leftover_path_field = None
+session_row = None
+session_path_field = None
+upd_track_row = None
+upd_track_path_field = None
+
+def create_path_row(description):
+    """Build a labeled, copyable file-path row: a description label above a
+    read-only path field with a Copy button. Returns (row_widget, path_field)
+    so callers can toggle the row's visibility and update its path later."""
+    row_widget = QWidget()
+    row_layout = QVBoxLayout(row_widget)
+    row_layout.setContentsMargins(0, 0, 0, 0)
+    row_layout.setSpacing(2)
+
+    description_label = QLabel(description)
+    description_label.setStyleSheet("font-weight: 600; font-size: 10pt;")
+    row_layout.addWidget(description_label)
+
+    path_row_layout = QHBoxLayout()
+    path_field = QLineEdit("")
+    path_field.setReadOnly(True)
+    path_row_layout.addWidget(path_field)
+
+    copy_button = QPushButton("Copy")
+    copy_button.setFixedWidth(50)
+    # Read the field's current text at click time rather than capturing a
+    # path now, since this row's widget is reused and updated across loads
+    copy_button.clicked.connect(lambda: QApplication.clipboard().setText(path_field.text()))
+    path_row_layout.addWidget(copy_button)
+
+    row_layout.addLayout(path_row_layout)
+    return row_widget, path_field
+
+def update_file_paths_display():
+    """Show/hide and refresh the output-file-path rows based on current state."""
+    if csv_loaded:
+        leftover_path_field.setText(os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE))
+        leftover_row.setVisible(True)
+        session_path_field.setText(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))
+        session_row.setVisible(True)
+    else:
+        leftover_row.setVisible(False)
+        session_row.setVisible(False)
+
+    if shared_state.MAX_TRACK_ID is not None:
+        upd_track_path_field.setText(os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE))
+        upd_track_row.setVisible(True)
+    else:
+        upd_track_row.setVisible(False)
+
 def trackin_main():
     """Main function to show the plugin interface."""
     global container, dets_label, conns_label, track_file_label
+    global leftover_row, leftover_path_field, session_row, session_path_field
+    global upd_track_row, upd_track_path_field
     container = QWidget()
     layout = QVBoxLayout(container)  # Create a vertical layout
 
@@ -899,6 +958,24 @@ def trackin_main():
     layout.addWidget(track_file_label)
 
     layout.addWidget(image_slider.native)  # Add the slider widget
+
+    # Group of copyable output-file paths, shown/updated as state changes.
+    # Its own top/bottom margins give it visual separation from the slider
+    # above and the Detections/Connections counts appended below it later.
+    file_paths_group = QWidget()
+    file_paths_layout = QVBoxLayout(file_paths_group)
+    file_paths_layout.setContentsMargins(0, 14, 0, 14)
+    file_paths_layout.setSpacing(8)
+
+    leftover_row, leftover_path_field = create_path_row("Detections not yet in a track")
+    session_row, session_path_field = create_path_row("Tracks accepted this session")
+    upd_track_row, upd_track_path_field = create_path_row("Combined tracks (previous session + this one)")
+
+    for row in (leftover_row, session_row, upd_track_row):
+        row.setVisible(False)
+        file_paths_layout.addWidget(row)
+
+    layout.addWidget(file_paths_group)
     
     # Set layout to the container
     container.setLayout(layout)
@@ -934,7 +1011,21 @@ def clear_detections_and_tracks():
     shared_state.TRACKED = False
     shared_state.MAX_TRACK_ID = None
     shared_state.G = None
-    
+
+    # Hide all three rows unconditionally rather than routing through
+    # update_file_paths_display(): that function's leftover/session
+    # visibility is gated on the module-level csv_loaded flag, which is
+    # never reset to False here or in choose_folder() -- so if a CSV had
+    # already been loaded once this session and images are reloaded
+    # without a new CSV yet, csv_loaded is still stale True and would
+    # re-show the *previous* dataset's file paths. Any caller that goes on
+    # to load a fresh CSV (e.g. load_csv() reloading) will re-show the
+    # rows correctly via its own update_file_paths_display() call right after.
+    if leftover_row is not None:
+        leftover_row.setVisible(False)
+        session_row.setVisible(False)
+        upd_track_row.setVisible(False)
+
     print("Cleared all detections and tracks.")
 
 def write_updated_detections_to_file(data, updated_data_file, csv_path):
