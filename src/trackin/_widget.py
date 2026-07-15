@@ -9,6 +9,7 @@ import numpy as np
 from napari.utils.events import EventEmitter
 from .shared_state import shared_state
 from datetime import datetime
+from pathlib import PurePosixPath
 from .tracking import add_node_with_dummy_edges
 from napari.utils.notifications import show_info
 
@@ -228,6 +229,15 @@ load_csv.call_button.native.setToolTip(
     "and track_no (include it if these detections are already tracked)."
 )
 
+def generate_upd_track_filename(csv_path, timestamp):
+    """Build the filename for a track file that continues a previous
+    session's track numbering, from the selected CSV's path and a
+    timestamp. Handles both / and \\ path separators, and keeps
+    everything before the last dot (so "my.tracks.v2.csv" becomes
+    "my.tracks.v2", not "my")."""
+    csv_filename = PurePosixPath(csv_path.replace('\\', '/')).stem
+    return f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
+
 # loads a file with already accepted tracks and adds these and any subsequent accepted tracks to a new track file
 @magicgui(call_button="Add Track File", auto_call=True)
 def load_track_file():
@@ -239,11 +249,10 @@ def load_track_file():
 
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
-        csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # name for file where leftover positions are preserved
-        shared_state.UPD_TRACK_FILE = f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
+        shared_state.UPD_TRACK_FILE = generate_upd_track_filename(csv_path, timestamp)
 
         try:
             track_df = pd.read_csv(csv_path).astype(int)

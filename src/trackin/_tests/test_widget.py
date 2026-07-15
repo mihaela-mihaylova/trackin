@@ -4,6 +4,7 @@ import pandas as pd
 from trackin._widget import (
     add_white_border,
     check_and_add_displ_cols,
+    generate_upd_track_filename,
     write_updated_detections_to_file,
 )
 
@@ -64,3 +65,24 @@ def test_write_updated_detections_to_file_empty_data_writes_header_only(tmp_path
     lines = (tmp_path / "out.csv").read_text().splitlines()
 
     assert lines == ["tframe,y,x,displ_y,displ_x"]
+
+
+def test_generate_upd_track_filename_normal_path():
+    result = generate_upd_track_filename(
+        "/home/user/data/tracks.csv", "20250101_120000"
+    )
+    assert result == "with_new_tracks_added_tracks_20250101_120000.csv"
+
+
+def test_generate_upd_track_filename_windows_style_path():
+    result = generate_upd_track_filename(
+        "C:\\Users\\test\\my_tracks.csv", "20250101_120000"
+    )
+    assert result == "with_new_tracks_added_my_tracks_20250101_120000.csv"
+
+
+def test_generate_upd_track_filename_multiple_dots_in_filename():
+    result = generate_upd_track_filename(
+        "/home/user/data/my.tracks.v2.csv", "20250101_120000"
+    )
+    assert result == "with_new_tracks_added_my.tracks.v2_20250101_120000.csv"
