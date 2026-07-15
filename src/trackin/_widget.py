@@ -303,6 +303,10 @@ def load_track_file():
     
             shared_state.MAX_TRACK_ID = max_track_no
 
+            if track_file_label is not None:
+                track_file_label.setText(f"Track file loaded: {os.path.basename(csv_path)}")
+                track_file_label.setToolTip(csv_path)
+
         except pd.errors.ParserError as e:
             QMessageBox.critical(None, "File Error", f"The selected file is not a valid CSV or is malformed: {e}")
             return
@@ -855,9 +859,11 @@ def show_help():
 
     dialog.exec_()
 
+track_file_label = None  # Shows which track file was last loaded, if any
+
 def trackin_main():
     """Main function to show the plugin interface."""
-    global container, dets_label, conns_label
+    global container, dets_label, conns_label, track_file_label
     container = QWidget()
     layout = QVBoxLayout(container)  # Create a vertical layout
 
@@ -884,6 +890,14 @@ def trackin_main():
     layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
     layout.addWidget(load_csv.native)
     layout.addWidget(load_track_file.native)
+
+    # Shows the loaded track file's name once "Add Track File" succeeds,
+    # since that success is otherwise only reported via a transient toast
+    track_file_label = QLabel("")
+    track_file_label.setStyleSheet("color: gray; font-style: italic;")
+    track_file_label.setWordWrap(True)
+    layout.addWidget(track_file_label)
+
     layout.addWidget(image_slider.native)  # Add the slider widget
     
     # Set layout to the container
