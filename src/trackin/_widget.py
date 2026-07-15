@@ -20,6 +20,13 @@ images_loaded = False
 csv_loaded = False
 container = None  # Global reference to the container
 
+# napari's camera has no built-in zoom limits, so scrolling can otherwise
+# zoom out until the view is a blank speck. These are recomputed relative to
+# each dataset's fit-to-view zoom once images are loaded (see choose_folder).
+MIN_ZOOM = 0.05
+MAX_ZOOM = 100.0
+ZOOM_STEP = 1.1  # multiplicative zoom change per wheel notch
+
 
 # EVENT EMITTERS
 csv_loaded_event = EventEmitter(source=None, type_name='csv_loaded')
@@ -37,6 +44,31 @@ right_timer = QTimer()
 left_timer = QTimer()
 
 
+def clamp_camera_zoom(event=None):
+    """Keep the camera zoom within [MIN_ZOOM, MAX_ZOOM]."""
+    zoom = viewer.camera.zoom
+    clamped = min(max(zoom, MIN_ZOOM), MAX_ZOOM)
+    if clamped != zoom:
+        viewer.camera.zoom = clamped
+
+def on_mouse_wheel_zoom(viewer, event):
+    """Zoom the camera on plain mouse scroll, replacing napari's default
+    wheel-zoom so we control the direction and clamp range ourselves,
+    regardless of the OS/trackpad scroll convention."""
+    if event.modifiers:
+        return  # leave modified scroll (e.g. Control = change frame) alone
+
+    delta = event.delta[1]
+    if event.native is not None and event.native.inverted():
+        delta = -delta
+    if delta == 0:
+        return
+
+    factor = ZOOM_STEP if delta > 0 else 1 / ZOOM_STEP
+    new_zoom = viewer.camera.zoom * factor
+    viewer.camera.zoom = min(max(new_zoom, MIN_ZOOM), MAX_ZOOM)
+    event.handled = True
+
 def initialize_viewer(napari_viewer):
     """Initialize the Napari viewer object."""
     global viewer
@@ -44,6 +76,12 @@ def initialize_viewer(napari_viewer):
 
     # Set up key bindings for the viewer
     setup_keybindings()
+
+    # Take over scroll-to-zoom so direction and range are under our control
+    viewer.mouse_wheel_callbacks.append(on_mouse_wheel_zoom)
+
+    # Backstop in case zoom changes through some other path (e.g. reset_view)
+    viewer.camera.events.zoom.connect(clamp_camera_zoom)
 
     # Set up the timers for handling repeated key presses
     right_timer.timeout.connect(next_image)
@@ -105,7 +143,7 @@ def check_and_update_image():
 @magicgui(call_button="Load Images", auto_call=True)
 def choose_folder():
     """Open a dialog to select a folder and load images from it."""
-    global images, image_files, viewer, images_loaded
+    global images, image_files, viewer, images_loaded, MIN_ZOOM, MAX_ZOOM
     folder_path = QFileDialog.getExistingDirectory(None, "Select Folder with Images")
     if folder_path:
         clear_detections_and_tracks()
@@ -115,6 +153,11 @@ def choose_folder():
         if images:
             viewer.layers.clear()
             viewer.add_image(images[shared_state.current_index], name=os.path.basename(image_files[shared_state.current_index]))
+            # napari fits the view to the image on add; use that as the
+            # baseline for how far this dataset can be zoomed in/out
+            fit_zoom = viewer.camera.zoom
+            MIN_ZOOM = fit_zoom * 0.5
+            MAX_ZOOM = fit_zoom * 30
             check_and_update_image()
             update_slider_max()
 
@@ -484,12 +527,13 @@ def delete_detection(layer, event=None, use_key=False):
     clicked_index = None
     # Determine the clicked index based on input type
     if not use_key:  # Called from mouse event
-        if event.button == 2:  # Right-click
-            click_position = event.position
-            print(f'clicked position:{click_position}')
-            clicked_index = layer.get_value(click_position, world=True)
-            if clicked_index is None:
-                return  # No valid point was clicked, exit
+        if event.button != 2:  # Not a right-click: nothing to do here, let the
+            return              # event fall through to napari's default pan/zoom.
+        click_position = event.position
+        print(f'clicked position:{click_position}')
+        clicked_index = layer.get_value(click_position, world=True)
+        if clicked_index is None:
+            return  # No valid point was clicked, exit
     else:  # Called using the 'D' key
         curr_track = shared_state.track
         if curr_track[shared_state.current_index] != -1:
