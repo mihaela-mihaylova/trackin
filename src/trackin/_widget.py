@@ -2,7 +2,7 @@ import os
 import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
-from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QDialog, QSlider, QLineEdit, QApplication
+from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QDialog, QSlider, QApplication, QSizePolicy, QToolTip
 from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
@@ -306,7 +306,9 @@ def load_track_file():
             shared_state.MAX_TRACK_ID = max_track_no
 
             if track_file_label is not None:
-                track_file_label.setText(f"Track file loaded: {os.path.basename(csv_path)}")
+                track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
+                # set_path() defaults the tooltip to the same string as the
+                # display text; override it with the actual full path instead
                 track_file_label.setToolTip(csv_path)
 
             update_file_paths_display()
@@ -873,47 +875,113 @@ session_path_field = None
 upd_track_row = None
 upd_track_path_field = None
 
-def create_path_row(description):
-    """Build a labeled, copyable file-path row: a description label above a
-    read-only path field with a Copy button. Returns (row_widget, path_field)
-    so callers can toggle the row's visibility and update its path later."""
+class ElidedPathLabel(QLabel):
+    """A QLabel that displays a long path with an ellipsis instead of
+    forcing its row (and so the sidebar panel) wider than the space
+    actually available, while keeping the untruncated path (in
+    .full_path, and as this label's tooltip) available for copying.
+    Re-elides on resize so it stays correct if the panel is resized."""
+
+    def __init__(self):
+        super().__init__("")
+        self.full_path = ""
+        # QSizePolicy.Ignored means Qt's layout engine never lets this
+        # label's text length dictate how wide its row/panel must be --
+        # it always shrinks to whatever width it's actually given.
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(0)
+
+    def set_path(self, path):
+        self.full_path = path
+        self.setToolTip(path)
+        self._update_elided_text()
+
+    def _update_elided_text(self):
+        elided = self.fontMetrics().elidedText(self.full_path, Qt.ElideMiddle, self.width())
+        super().setText(elided)
+
+    def resizeEvent(self, event):
+        self._update_elided_text()
+        super().resizeEvent(event)
+
+def show_field_explanation(button, explanation):
+    """Show a click-triggered tooltip bubble explaining a field, positioned
+    at the button that was clicked. Dismisses automatically on click-
+    elsewhere or mouse-move, same as a normal hover tooltip would."""
+    QToolTip.showText(button.mapToGlobal(button.rect().bottomLeft()), explanation, button)
+
+def create_info_button(explanation):
+    """Build a small pale-yellow 'i' button that shows explanation in a
+    click-triggered tooltip bubble. Uses 'i' rather than '?' and a
+    deliberately different color from the blue Help button, since that
+    button's '?' is reserved for the keybinding cheatsheet -- this is a
+    small, single-field hint, a different kind of help entirely."""
+    info_button = QPushButton("i")
+    info_button.setFixedSize(11, 11)
+    info_button.setCursor(Qt.PointingHandCursor)
+    info_button.setStyleSheet(
+        "QPushButton {"
+        "  background-color: #FFFFE0;"
+        "  color: black;"
+        "  border: 1px solid #d9c05a;"
+        "  border-radius: 5px;"
+        "  font-weight: bold;"
+        "  font-style: italic;"
+        "  font-size: 8px;"
+        "  padding: 0px;"
+        "}"
+        "QPushButton:hover { background-color: #FFF8B0; }"
+        "QPushButton:pressed { background-color: #FFEE99; }"
+    )
+    info_button.clicked.connect(lambda: show_field_explanation(info_button, explanation))
+    return info_button
+
+def create_path_row(description, explanation):
+    """Build a labeled, copyable file-path row: a description label (with a
+    small info button explaining what the file contains) above an
+    ellipsis-truncated path (full path on hover) with a Copy button. Returns
+    (row_widget, path_label) so callers can toggle the row's visibility and
+    update its path later."""
     row_widget = QWidget()
     row_layout = QVBoxLayout(row_widget)
     row_layout.setContentsMargins(0, 0, 0, 0)
     row_layout.setSpacing(2)
 
+    label_row_layout = QHBoxLayout()
     description_label = QLabel(description)
     description_label.setStyleSheet("font-weight: 600; font-size: 10pt;")
-    row_layout.addWidget(description_label)
+    label_row_layout.addWidget(description_label)
+    label_row_layout.addWidget(create_info_button(explanation))
+    label_row_layout.addStretch()
+    row_layout.addLayout(label_row_layout)
 
     path_row_layout = QHBoxLayout()
-    path_field = QLineEdit("")
-    path_field.setReadOnly(True)
-    path_row_layout.addWidget(path_field)
+    path_label = ElidedPathLabel()
+    path_row_layout.addWidget(path_label, stretch=1)
 
     copy_button = QPushButton("Copy")
     copy_button.setFixedWidth(50)
-    # Read the field's current text at click time rather than capturing a
-    # path now, since this row's widget is reused and updated across loads
-    copy_button.clicked.connect(lambda: QApplication.clipboard().setText(path_field.text()))
+    # Read the label's current full path at click time rather than capturing
+    # one now, since this row's widget is reused and updated across loads
+    copy_button.clicked.connect(lambda: QApplication.clipboard().setText(path_label.full_path))
     path_row_layout.addWidget(copy_button)
 
     row_layout.addLayout(path_row_layout)
-    return row_widget, path_field
+    return row_widget, path_label
 
 def update_file_paths_display():
     """Show/hide and refresh the output-file-path rows based on current state."""
     if csv_loaded:
-        leftover_path_field.setText(os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE))
+        leftover_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE))
         leftover_row.setVisible(True)
-        session_path_field.setText(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))
+        session_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))
         session_row.setVisible(True)
     else:
         leftover_row.setVisible(False)
         session_row.setVisible(False)
 
     if shared_state.MAX_TRACK_ID is not None:
-        upd_track_path_field.setText(os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE))
+        upd_track_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE))
         upd_track_row.setVisible(True)
     else:
         upd_track_row.setVisible(False)
@@ -952,9 +1020,8 @@ def trackin_main():
 
     # Shows the loaded track file's name once "Add Track File" succeeds,
     # since that success is otherwise only reported via a transient toast
-    track_file_label = QLabel("")
+    track_file_label = ElidedPathLabel()
     track_file_label.setStyleSheet("color: gray; font-style: italic;")
-    track_file_label.setWordWrap(True)
     layout.addWidget(track_file_label)
 
     layout.addWidget(image_slider.native)  # Add the slider widget
@@ -967,9 +1034,18 @@ def trackin_main():
     file_paths_layout.setContentsMargins(0, 14, 0, 14)
     file_paths_layout.setSpacing(8)
 
-    leftover_row, leftover_path_field = create_path_row("Detections not yet in a track")
-    session_row, session_path_field = create_path_row("Tracks accepted this session")
-    upd_track_row, upd_track_path_field = create_path_row("Combined tracks (previous session + this one)")
+    leftover_row, leftover_path_field = create_path_row(
+        "Leftover detections",
+        "Contains detections that are left after the ones in accepted tracks have been removed.",
+    )
+    session_row, session_path_field = create_path_row(
+        "Tracks accepted this session",
+        "Contains the detections included in the accepted tracks, together with the respective generated track ids.",
+    )
+    upd_track_row, upd_track_path_field = create_path_row(
+        "Combined tracks",
+        "Contains the tracks from the added track file, together with the accepted tracks in this session.",
+    )
 
     for row in (leftover_row, session_row, upd_track_row):
         row.setVisible(False)
