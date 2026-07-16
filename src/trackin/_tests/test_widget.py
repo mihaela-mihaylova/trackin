@@ -1,12 +1,30 @@
 import numpy as np
 import pandas as pd
 
+import trackin._widget as widget
 from trackin._widget import (
     add_white_border,
     check_and_add_displ_cols,
     generate_upd_track_filename,
     write_updated_detections_to_file,
 )
+from trackin.shared_state import shared_state
+
+SHARED_STATE_FIELDS = [
+    "DATA",
+    "track",
+    "track_lines",
+    "NUM_DET_PER_FRAME",
+    "TRACKED",
+    "MAX_TRACK_ID",
+    "G",
+    "N_TRACKS",
+    "SESSION_FILE",
+    "UPDATED_DATA_FILE",
+    "UPD_TRACK_FILE",
+    "NUM_DETS",
+    "NUM_CONN",
+]
 
 
 def test_check_and_add_displ_cols_adds_missing_columns():
@@ -86,3 +104,114 @@ def test_generate_upd_track_filename_multiple_dots_in_filename():
         "/home/user/data/my.tracks.v2.csv", "20250101_120000"
     )
     assert result == "with_new_tracks_added_my.tracks.v2_20250101_120000.csv"
+
+
+class _FakeViewer:
+    """Minimal stand-in for a napari viewer -- clear_detections_and_tracks()
+    only needs `layers` to support `in`, it never touches anything else."""
+
+    def __init__(self):
+        self.layers = {}
+
+
+def test_clear_detections_and_tracks_resets_shared_state_and_ui():
+    original_viewer = widget.viewer
+    original_widgets = {
+        name: getattr(widget, name)
+        for name in (
+            "track_file_label",
+            "leftover_row",
+            "leftover_path_field",
+            "session_row",
+            "session_path_field",
+            "upd_track_row",
+            "upd_track_path_field",
+            "dets_label",
+            "conns_label",
+        )
+    }
+    original_shared_state = {field: getattr(shared_state, field) for field in SHARED_STATE_FIELDS}
+
+    try:
+        widget.viewer = _FakeViewer()
+
+        widget.track_file_label = widget.ElidedPathLabel()
+        widget.track_file_label.set_path("Track file loaded: old_tracks.csv")
+
+        widget.leftover_row, widget.leftover_path_field = widget.create_path_row(
+            "Leftover detections", "..."
+        )
+        widget.session_row, widget.session_path_field = widget.create_path_row(
+            "Tracks accepted this session", "..."
+        )
+        widget.upd_track_row, widget.upd_track_path_field = widget.create_path_row(
+            "Combined tracks", "..."
+        )
+        for row in (widget.leftover_row, widget.session_row, widget.upd_track_row):
+            row.setVisible(True)  # simulate them being shown from a prior load
+
+        widget.dets_label = widget.QLabel("Detections: 42")
+        widget.conns_label = widget.QLabel("Connections: 99")
+
+        # Seed state as if a full session (images, detections, and a loaded
+        # track file) had already happened for the *previous* dataset
+        shared_state.DATA = [[(1, 2, 0, 0)]]
+        shared_state.track = [0]
+        shared_state.track_lines = np.array([[[1, 2], [3, 4]]])
+        shared_state.NUM_DET_PER_FRAME = [1]
+        shared_state.TRACKED = True
+        shared_state.MAX_TRACK_ID = 7
+        shared_state.G = object()  # value doesn't matter, only that it's reset to None
+        shared_state.N_TRACKS = 3
+        shared_state.SESSION_FILE = "track_session_old_20250101_000000.csv"
+        shared_state.UPDATED_DATA_FILE = "upd_old_20250101_000000.csv"
+        shared_state.UPD_TRACK_FILE = "with_new_tracks_added_old_20250101_000000.csv"
+        shared_state.NUM_DETS = 42
+        shared_state.NUM_CONN = 99
+
+        widget.clear_detections_and_tracks()
+
+        assert shared_state.DATA == []
+        assert shared_state.track == []
+        assert shared_state.track_lines is None
+        assert shared_state.NUM_DET_PER_FRAME == []
+        assert shared_state.TRACKED is False
+        assert shared_state.MAX_TRACK_ID is None
+        assert shared_state.G is None
+        assert shared_state.N_TRACKS == 0
+        assert shared_state.SESSION_FILE == ''
+        assert shared_state.UPDATED_DATA_FILE == ''
+        assert shared_state.UPD_TRACK_FILE == ''
+        assert shared_state.NUM_DETS is None
+        assert shared_state.NUM_CONN is None
+
+        assert widget.track_file_label.full_path == ""
+        assert widget.leftover_row.isVisible() is False
+        assert widget.session_row.isVisible() is False
+        assert widget.upd_track_row.isVisible() is False
+
+        # The Detections/Connections labels only update in response to
+        # graph_updated_event -- clear_detections_and_tracks() must fire it
+        # itself, or these stay showing the *previous* dataset's stale
+        # counts until some unrelated keypress happens to fire it later.
+        assert widget.dets_label is None
+        assert widget.conns_label is None
+    finally:
+        widget.viewer = original_viewer
+        for name, value in original_widgets.items():
+            setattr(widget, name, value)
+        for field, value in original_shared_state.items():
+            setattr(shared_state, field, value)
+
+
+def test_delete_detection_d_key_no_op_when_track_is_empty_list():
+    """Right after images are reloaded (before a new CSV is loaded),
+    shared_state.track is [] -- the 'D' key path indexed into it with
+    curr_track[shared_state.current_index] unconditionally, an IndexError
+    crash on an empty list."""
+    original_track = shared_state.track
+    try:
+        shared_state.track = []
+        widget.delete_detection(None, use_key=True)  # must not raise
+    finally:
+        shared_state.track = original_track

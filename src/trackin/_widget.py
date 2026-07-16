@@ -583,6 +583,10 @@ def delete_detection(layer, event=None, use_key=False):
             return  # No valid point was clicked, exit
     else:  # Called using the 'D' key
         curr_track = shared_state.track
+        # e.g. right after images are reloaded, before a new CSV is loaded
+        if not curr_track:
+            print("No detections loaded to delete with 'D' key.")
+            return
         if curr_track[shared_state.current_index] != -1:
             clicked_index = curr_track[shared_state.current_index]  # Use the tracked index if available
         else:
@@ -1087,6 +1091,17 @@ def clear_detections_and_tracks():
     shared_state.TRACKED = False
     shared_state.MAX_TRACK_ID = None
     shared_state.G = None
+    shared_state.N_TRACKS = 0
+    shared_state.NUM_DETS = None
+    shared_state.NUM_CONN = None
+
+    # Reset the filenames themselves too, not just MAX_TRACK_ID -- so that if
+    # any future code path is ever reached with an empty/cleared DATA or
+    # track, it fails loudly (e.g. IsADirectoryError from a blank path)
+    # rather than silently writing into the *previous* dataset's files.
+    shared_state.SESSION_FILE = ''
+    shared_state.UPDATED_DATA_FILE = ''
+    shared_state.UPD_TRACK_FILE = ''
 
     # Hide all three rows unconditionally rather than routing through
     # update_file_paths_display(): that function's leftover/session
@@ -1101,6 +1116,18 @@ def clear_detections_and_tracks():
         leftover_row.setVisible(False)
         session_row.setVisible(False)
         upd_track_row.setVisible(False)
+
+    # Clear the "Track file loaded: ..." label too -- it previously wasn't
+    # touched here at all, so it kept showing the *previous* dataset's
+    # loaded track file even after images were reloaded.
+    if track_file_label is not None:
+        track_file_label.set_path("")
+
+    # update_labels() (the Detections/Connections counts) only runs in
+    # response to this event -- without firing it here, those labels kept
+    # showing the *previous* dataset's stale counts until some unrelated
+    # keypress happened to fire the event afterward.
+    graph_updated_event()
 
     print("Cleared all detections and tracks.")
 
