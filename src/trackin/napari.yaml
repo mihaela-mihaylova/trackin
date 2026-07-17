@@ -4,7 +4,7 @@ contributions:
   commands:
     - id: trackin.trackin_main
       title: Trackin
-      python_name: trackin._widget:trackin_main
+      python_name: trackin._widget:TrackinWidget
 
   widgets:
     - command: trackin.trackin_main

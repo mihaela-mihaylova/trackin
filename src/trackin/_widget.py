@@ -39,6 +39,17 @@ save_segment_event = EventEmitter(source=None, type_name='save_segment')
 delete_all_connections_event = EventEmitter(source=None, type_name='delete_all_connections')
 graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 
+# utils.py wires up handlers for the events above (accept_track,
+# delete_segment, etc.) via .connect() calls at module level -- that only
+# happens once utils.py is actually imported. Previously the *only* thing
+# that imported it was trackin/__init__.py's `from .utils import
+# build_graph`; now that __init__.py is empty (napari resolves the widget
+# via trackin._widget:TrackinWidget directly, never importing __init__'s
+# old contents), we need to trigger that import here instead. Placed after
+# the event emitters above, not at the top of the file: utils.py imports
+# these six names back from this module, so this only works if they
+# already exist in this (still-initializing) module's namespace first.
+from . import utils  # noqa: F401
 
 # Create timers for handling continuous key press events
 right_timer = QTimer()
@@ -1024,96 +1035,106 @@ def update_file_paths_display():
     if csv_loaded and session_files_content is not None:
         set_session_files_expanded(True)
 
-def trackin_main():
-    """Main function to show the plugin interface."""
-    global container, dets_label, conns_label, track_file_label
-    global leftover_row, leftover_path_field, session_row, session_path_field
-    global upd_track_row, upd_track_path_field
-    global session_files_header, session_files_content
-    container = QWidget()
-    layout = QVBoxLayout(container)  # Create a vertical layout
+class TrackinWidget(QWidget):
+    """Dock widget for the plugin interface. napari's dock-widget injection
+    only introspects a widget *class's* __init__ signature for a
+    napari_viewer parameter (a plain function's own .__init__ is just the
+    generic one every function object inherits, so this used to be a bare
+    function and never actually received the real viewer -- see
+    _instantiate_dock_widget in napari's qt_main_window.py). napari
+    automatically passes in the currently active viewer when this is
+    instantiated as a dock widget via the Plugins menu."""
 
-    # Small round help button, opens a dialog listing keyboard/mouse shortcuts
-    help_button = QPushButton("?")
-    help_button.setFixedSize(24, 24)
-    help_button.setToolTip("Help")
-    help_button.setCursor(Qt.PointingHandCursor)
-    help_button.setStyleSheet(
-        "QPushButton {"
-        "  background-color: #2b7de9;"
-        "  color: white;"
-        "  border: none;"
-        "  border-radius: 12px;"
-        "  font-weight: bold;"
-        "}"
-        "QPushButton:hover { background-color: #4a90f0; }"
-        "QPushButton:pressed { background-color: #1c5fc2; }"
-    )
-    help_button.clicked.connect(show_help)
-    layout.addWidget(help_button, alignment=Qt.AlignRight)
+    def __init__(self, napari_viewer):
+        super().__init__()
+        initialize_viewer(napari_viewer)
 
-    # Use the magicgui widgets and add them directly to the layout
-    layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
-    layout.addWidget(load_csv.native)
-    layout.addWidget(load_track_file.native)
+        global container, dets_label, conns_label, track_file_label
+        global leftover_row, leftover_path_field, session_row, session_path_field
+        global upd_track_row, upd_track_path_field
+        global session_files_header, session_files_content
+        container = self
+        layout = QVBoxLayout(container)  # Create a vertical layout
 
-    # Shows the loaded track file's name once "Add Track File" succeeds,
-    # since that success is otherwise only reported via a transient toast
-    track_file_label = ElidedPathLabel()
-    track_file_label.setStyleSheet("color: gray; font-style: italic;")
-    layout.addWidget(track_file_label)
+        # Small round help button, opens a dialog listing keyboard/mouse shortcuts
+        help_button = QPushButton("?")
+        help_button.setFixedSize(24, 24)
+        help_button.setToolTip("Help")
+        help_button.setCursor(Qt.PointingHandCursor)
+        help_button.setStyleSheet(
+            "QPushButton {"
+            "  background-color: #2b7de9;"
+            "  color: white;"
+            "  border: none;"
+            "  border-radius: 12px;"
+            "  font-weight: bold;"
+            "}"
+            "QPushButton:hover { background-color: #4a90f0; }"
+            "QPushButton:pressed { background-color: #1c5fc2; }"
+        )
+        help_button.clicked.connect(show_help)
+        layout.addWidget(help_button, alignment=Qt.AlignRight)
 
-    layout.addWidget(image_slider.native)  # Add the slider widget
+        # Use the magicgui widgets and add them directly to the layout
+        layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
+        layout.addWidget(load_csv.native)
+        layout.addWidget(load_track_file.native)
 
-    # Collapsible "Session Files" card wrapping the copyable output-file-path
-    # rows, shown/updated as state changes. Starts collapsed since there's
-    # nothing to show until a CSV is loaded; update_file_paths_display()
-    # auto-expands it whenever a row's content actually changes.
-    session_files_header = QPushButton("▸ Session Files")
-    session_files_header.setFlat(True)
-    session_files_header.setStyleSheet(
-        "QPushButton { text-align: left; font-weight: 600; border: none; padding: 2px 0; }"
-    )
-    session_files_header.setCursor(Qt.PointingHandCursor)
-    session_files_header.clicked.connect(toggle_session_files)
-    session_files_header.setVisible(False)  # nothing to show until a CSV is loaded
-    layout.addWidget(session_files_header)
+        # Shows the loaded track file's name once "Add Track File" succeeds,
+        # since that success is otherwise only reported via a transient toast
+        track_file_label = ElidedPathLabel()
+        track_file_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(track_file_label)
 
-    session_files_content = QWidget()
-    file_paths_layout = QVBoxLayout(session_files_content)
-    file_paths_layout.setContentsMargins(0, 4, 0, 14)
-    file_paths_layout.setSpacing(8)
+        layout.addWidget(image_slider.native)  # Add the slider widget
 
-    leftover_row, leftover_path_field = create_path_row(
-        "Leftover detections",
-        "Contains detections that are left after the ones in accepted tracks have been removed.",
-    )
-    session_row, session_path_field = create_path_row(
-        "Tracks accepted this session",
-        "Contains the detections included in the accepted tracks, together with the respective generated track ids.",
-    )
-    upd_track_row, upd_track_path_field = create_path_row(
-        "Combined tracks",
-        "Contains the tracks from the added track file, together with the accepted tracks in this session.",
-    )
+        # Collapsible "Session Files" card wrapping the copyable output-file-path
+        # rows, shown/updated as state changes. Starts collapsed since there's
+        # nothing to show until a CSV is loaded; update_file_paths_display()
+        # auto-expands it whenever a row's content actually changes.
+        session_files_header = QPushButton("▸ Session Files")
+        session_files_header.setFlat(True)
+        session_files_header.setStyleSheet(
+            "QPushButton { text-align: left; font-weight: 600; border: none; padding: 2px 0; }"
+        )
+        session_files_header.setCursor(Qt.PointingHandCursor)
+        session_files_header.clicked.connect(toggle_session_files)
+        session_files_header.setVisible(False)  # nothing to show until a CSV is loaded
+        layout.addWidget(session_files_header)
 
-    for row in (leftover_row, session_row, upd_track_row):
-        row.setVisible(False)
-        file_paths_layout.addWidget(row)
+        session_files_content = QWidget()
+        file_paths_layout = QVBoxLayout(session_files_content)
+        file_paths_layout.setContentsMargins(0, 4, 0, 14)
+        file_paths_layout.setSpacing(8)
 
-    session_files_content.setVisible(False)
-    layout.addWidget(session_files_content)
+        leftover_row, leftover_path_field = create_path_row(
+            "Leftover detections",
+            "Contains detections that are left after the ones in accepted tracks have been removed.",
+        )
+        session_row, session_path_field = create_path_row(
+            "Tracks accepted this session",
+            "Contains the detections included in the accepted tracks, together with the respective generated track ids.",
+        )
+        upd_track_row, upd_track_path_field = create_path_row(
+            "Combined tracks",
+            "Contains the tracks from the added track file, together with the accepted tracks in this session.",
+        )
 
-    # Set layout to the container
-    container.setLayout(layout)
+        for row in (leftover_row, session_row, upd_track_row):
+            row.setVisible(False)
+            file_paths_layout.addWidget(row)
 
-    # Set focus policy and initially focus the container
-    container.setFocusPolicy(Qt.StrongFocus)
-    container.setFocus()
-    viewer.window.qt_viewer.dockLayerList.setVisible(False)
-    viewer.window.qt_viewer.dockLayerControls.setVisible(False)
+        session_files_content.setVisible(False)
+        layout.addWidget(session_files_content)
 
-    return container
+        # Set layout to the container
+        container.setLayout(layout)
+
+        # Set focus policy and initially focus the container
+        container.setFocusPolicy(Qt.StrongFocus)
+        container.setFocus()
+        viewer.window.qt_viewer.dockLayerList.setVisible(False)
+        viewer.window.qt_viewer.dockLayerControls.setVisible(False)
 
 
 def clear_detections_and_tracks():
