@@ -886,6 +886,19 @@ session_path_field = None
 upd_track_row = None
 upd_track_path_field = None
 
+# Collapsible "Session Files" card wrapping the three rows above
+session_files_header = None
+session_files_content = None
+
+def set_session_files_expanded(expanded):
+    """Show/hide the Session Files card's content and update its header arrow."""
+    session_files_content.setVisible(expanded)
+    arrow = "▾" if expanded else "▸"  # ▾ expanded, ▸ collapsed
+    session_files_header.setText(f"{arrow} Session Files")
+
+def toggle_session_files():
+    set_session_files_expanded(not session_files_content.isVisible())
+
 class ElidedPathLabel(QLabel):
     """A QLabel that displays a long path with an ellipsis instead of
     forcing its row (and so the sidebar panel) wider than the space
@@ -987,9 +1000,16 @@ def update_file_paths_display():
         leftover_row.setVisible(True)
         session_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))
         session_row.setVisible(True)
+        # The whole Session Files card (header included) only makes sense
+        # once there's a CSV loaded -- with just images loaded, there's
+        # nothing to show yet.
+        if session_files_header is not None:
+            session_files_header.setVisible(True)
     else:
         leftover_row.setVisible(False)
         session_row.setVisible(False)
+        if session_files_header is not None:
+            session_files_header.setVisible(False)
 
     if shared_state.MAX_TRACK_ID is not None:
         upd_track_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE))
@@ -997,11 +1017,19 @@ def update_file_paths_display():
     else:
         upd_track_row.setVisible(False)
 
+    # Auto-expand the card whenever a row's content actually changed, so a
+    # newly added file (e.g. from "Add Track File") is immediately visible
+    # rather than hidden behind a collapsed header the user has to think to
+    # open. Only relevant once the header itself is showing (csv_loaded).
+    if csv_loaded and session_files_content is not None:
+        set_session_files_expanded(True)
+
 def trackin_main():
     """Main function to show the plugin interface."""
     global container, dets_label, conns_label, track_file_label
     global leftover_row, leftover_path_field, session_row, session_path_field
     global upd_track_row, upd_track_path_field
+    global session_files_header, session_files_content
     container = QWidget()
     layout = QVBoxLayout(container)  # Create a vertical layout
 
@@ -1037,12 +1065,23 @@ def trackin_main():
 
     layout.addWidget(image_slider.native)  # Add the slider widget
 
-    # Group of copyable output-file paths, shown/updated as state changes.
-    # Its own top/bottom margins give it visual separation from the slider
-    # above and the Detections/Connections counts appended below it later.
-    file_paths_group = QWidget()
-    file_paths_layout = QVBoxLayout(file_paths_group)
-    file_paths_layout.setContentsMargins(0, 14, 0, 14)
+    # Collapsible "Session Files" card wrapping the copyable output-file-path
+    # rows, shown/updated as state changes. Starts collapsed since there's
+    # nothing to show until a CSV is loaded; update_file_paths_display()
+    # auto-expands it whenever a row's content actually changes.
+    session_files_header = QPushButton("▸ Session Files")
+    session_files_header.setFlat(True)
+    session_files_header.setStyleSheet(
+        "QPushButton { text-align: left; font-weight: 600; border: none; padding: 2px 0; }"
+    )
+    session_files_header.setCursor(Qt.PointingHandCursor)
+    session_files_header.clicked.connect(toggle_session_files)
+    session_files_header.setVisible(False)  # nothing to show until a CSV is loaded
+    layout.addWidget(session_files_header)
+
+    session_files_content = QWidget()
+    file_paths_layout = QVBoxLayout(session_files_content)
+    file_paths_layout.setContentsMargins(0, 4, 0, 14)
     file_paths_layout.setSpacing(8)
 
     leftover_row, leftover_path_field = create_path_row(
@@ -1062,8 +1101,9 @@ def trackin_main():
         row.setVisible(False)
         file_paths_layout.addWidget(row)
 
-    layout.addWidget(file_paths_group)
-    
+    session_files_content.setVisible(False)
+    layout.addWidget(session_files_content)
+
     # Set layout to the container
     container.setLayout(layout)
 
@@ -1123,6 +1163,12 @@ def clear_detections_and_tracks():
         leftover_row.setVisible(False)
         session_row.setVisible(False)
         upd_track_row.setVisible(False)
+
+    # Hide the whole Session Files card (not just collapse it) too, since
+    # there's nothing left in it to show until a new CSV is loaded.
+    if session_files_content is not None:
+        set_session_files_expanded(False)
+        session_files_header.setVisible(False)
 
     # Clear the "Track file loaded: ..." label too -- it previously wasn't
     # touched here at all, so it kept showing the *previous* dataset's

@@ -131,6 +131,8 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
             "upd_track_path_field",
             "dets_label",
             "conns_label",
+            "session_files_header",
+            "session_files_content",
         )
     }
     original_shared_state = {field: getattr(shared_state, field) for field in SHARED_STATE_FIELDS}
@@ -155,6 +157,11 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
 
         widget.dets_label = widget.QLabel("Detections: 42")
         widget.conns_label = widget.QLabel("Connections: 99")
+
+        widget.session_files_header = widget.QPushButton("")
+        widget.session_files_header.setVisible(True)  # simulate it showing from a prior load
+        widget.session_files_content = widget.QWidget()
+        widget.set_session_files_expanded(True)  # simulate it being expanded from a prior load
 
         # Seed state as if a full session (images, detections, and a loaded
         # track file) had already happened for the *previous* dataset
@@ -199,6 +206,13 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
         # counts until some unrelated keypress happens to fire it later.
         assert widget.dets_label is None
         assert widget.conns_label is None
+
+        # The Session Files card should disappear entirely (not just
+        # collapse) -- there's nothing left in it to show until a new CSV
+        # is loaded.
+        assert widget.session_files_header.isVisible() is False
+        assert widget.session_files_content.isVisible() is False
+        assert widget.session_files_header.text() == "▸ Session Files"
     finally:
         widget.viewer = original_viewer
         for name, value in original_widgets.items():
@@ -302,3 +316,62 @@ def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
         for field, value in original.items():
             setattr(shared_state, field, value)
         widget.clicked_index = original_clicked_index
+
+
+def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
+    """A newly added file (e.g. from "Add Track File") should be immediately
+    visible, not hidden behind a collapsed header the user has to think to
+    open -- update_file_paths_display() must expand the card whenever it
+    actually updates a row's content."""
+    original_csv_loaded = widget.csv_loaded
+    original_widgets = {
+        name: getattr(widget, name)
+        for name in (
+            "leftover_row",
+            "leftover_path_field",
+            "session_row",
+            "session_path_field",
+            "upd_track_row",
+            "upd_track_path_field",
+            "session_files_header",
+            "session_files_content",
+        )
+    }
+    original_shared_state = {
+        field: getattr(shared_state, field)
+        for field in ("csv_folder_to_save", "UPDATED_DATA_FILE", "SESSION_FILE", "MAX_TRACK_ID", "UPD_TRACK_FILE")
+    }
+
+    try:
+        widget.csv_loaded = True
+        shared_state.csv_folder_to_save = str(tmp_path)
+        shared_state.UPDATED_DATA_FILE = "updated.csv"
+        shared_state.SESSION_FILE = "session.csv"
+        shared_state.MAX_TRACK_ID = None
+
+        widget.leftover_row, widget.leftover_path_field = widget.create_path_row(
+            "Leftover detections", "..."
+        )
+        widget.session_row, widget.session_path_field = widget.create_path_row(
+            "Tracks accepted this session", "..."
+        )
+        widget.upd_track_row, widget.upd_track_path_field = widget.create_path_row(
+            "Combined tracks", "..."
+        )
+
+        widget.session_files_header = widget.QPushButton("")
+        widget.session_files_header.setVisible(False)  # hidden until a CSV is loaded, as it would be by default
+        widget.session_files_content = widget.QWidget()
+        widget.set_session_files_expanded(False)  # start collapsed, as it would be by default
+
+        widget.update_file_paths_display()
+
+        assert widget.session_files_header.isVisible() is True
+        assert widget.session_files_content.isVisible() is True
+        assert widget.session_files_header.text() == "▾ Session Files"
+    finally:
+        widget.csv_loaded = original_csv_loaded
+        for name, value in original_widgets.items():
+            setattr(widget, name, value)
+        for field, value in original_shared_state.items():
+            setattr(shared_state, field, value)
