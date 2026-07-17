@@ -476,9 +476,9 @@ def overlay_points(frame_data):
             points,
             size=20,  # Default size for all detections
             face_color='transparent',
-            edge_color='white',
-            edge_width=1,
-            edge_width_is_relative=False,
+            border_color='white',
+            border_width=1,
+            border_width_is_relative=False,
             name='detections'
         )
         # Attach event handlers if necessary
@@ -487,24 +487,24 @@ def overlay_points(frame_data):
         points_layer.mouse_drag_callbacks.append(on_click)
 
     # Prepare attributes for the main points layer
-    edge_colors = ['white'] * len(points)
+    border_colors = ['white'] * len(points)
     sizes = [20] * len(points)
-    edge_widths = [1] * len(points)
+    border_widths = [1] * len(points)
 
     # Check if track contains detection in this frame and apply custom styles for the track point
     track_index = curr_track[shared_state.current_index]
     if track_index != -1:
-        edge_colors[track_index] = 'yellow'
+        border_colors[track_index] = 'yellow'
         sizes[track_index] = 35  # Increase the size of the track point
-        edge_widths[track_index] = 3  # Thicker border for the track point
+        border_widths[track_index] = 3  # Thicker border for the track point
 
     # --- Apply updates only if attributes have changed ---
     if not np.array_equal(points_layer.size, sizes):
         points_layer.size = sizes
-    if not np.array_equal(points_layer.edge_color, edge_colors):
-        points_layer.edge_color = edge_colors
-    if not np.array_equal(points_layer.edge_width, edge_widths):
-        points_layer.edge_width = edge_widths
+    if not np.array_equal(points_layer.border_color, border_colors):
+        points_layer.border_color = border_colors
+    if not np.array_equal(points_layer.border_width, border_widths):
+        points_layer.border_width = border_widths
 
     # --- Separate Track Point Layer ---
     # Check if there is a valid track point in this frame
@@ -523,9 +523,9 @@ def overlay_points(frame_data):
             track_point,
             size=35,  # Larger size for the track point
             face_color='transparent',
-            edge_color='yellow',
-            edge_width=3,
-            edge_width_is_relative=False,
+            border_color='yellow',
+            border_width=3,
+            border_width_is_relative=False,
             name='track_point'
         )
 
@@ -729,7 +729,7 @@ def add_detection(layer, event):
 
             # Update the size array with the correct shape
             layer.size = new_size_array
-            layer.edge_width_is_relative = False  # Ensure the border width is absolute
+            layer.border_width_is_relative = False  # Ensure the border width is absolute
 
             # Ensure the new point is added with the correct data in shared_state
             if shared_state.TRACKED:
