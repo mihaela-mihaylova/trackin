@@ -629,6 +629,9 @@ def delete_det_by_key(layer):
     layer.refresh()
     update_image()
 
+    # save up-to-date version of DATA
+    write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
+
     print(f"Removed node {node_name} with coordinates {point_coords}.")
 
 
@@ -647,6 +650,10 @@ def delete_det_by_mouse(layer, event):
 
     layer.refresh()
     update_image()
+
+    # save up-to-date version of DATA
+    write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
+
     print(f"Removed node {node_name} with coordinates {point_coords}.")
 
     # Mark the event as handled to stop further processing

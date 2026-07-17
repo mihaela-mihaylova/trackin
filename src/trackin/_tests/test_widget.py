@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 
@@ -9,6 +11,7 @@ from trackin._widget import (
     write_updated_detections_to_file,
 )
 from trackin.shared_state import shared_state
+from trackin.tracking import generate_graph
 
 SHARED_STATE_FIELDS = [
     "DATA",
@@ -215,3 +218,87 @@ def test_delete_detection_d_key_no_op_when_track_is_empty_list():
         widget.delete_detection(None, use_key=True)  # must not raise
     finally:
         shared_state.track = original_track
+
+
+class _FakeLayer:
+    """Minimal stand-in for a napari Points layer -- delete_det_by_key/
+    delete_det_by_mouse only need .data (mutable, indexable) and .refresh()."""
+
+    def __init__(self, data):
+        self.data = data
+
+    def refresh(self):
+        pass
+
+
+def test_delete_det_by_key_writes_updated_detections_file(tmp_path):
+    """Deleting a detection via the 'D' key marked it as removed in
+    shared_state.DATA but never persisted that to UPDATED_DATA_FILE --
+    unlike adding a detection, which already did via the same function."""
+    original = {
+        field: getattr(shared_state, field)
+        for field in (
+            "current_index", "DATA", "TRACKED", "G", "track",
+            "csv_folder_to_save", "UPDATED_DATA_FILE",
+        )
+    }
+    original_clicked_index = getattr(widget, "clicked_index", None)
+
+    try:
+        shared_state.current_index = 0
+        shared_state.DATA = [[(10, 20, 0, 0), (30, 40, 0, 0)]]
+        shared_state.TRACKED = False
+        shared_state.track = [-1]
+        shared_state.csv_folder_to_save = str(tmp_path)
+        shared_state.UPDATED_DATA_FILE = "updated.csv"
+        shared_state.G = generate_graph(
+            shared_state.DATA, max_score=1600, score_func="squared", tracked=False
+        )
+        widget.clicked_index = 0
+
+        layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
+        widget.delete_det_by_key(layer)
+
+        lines = (tmp_path / "updated.csv").read_text().splitlines()
+        assert lines[0] == "tframe,y,x,displ_y,displ_x"
+        assert lines[1] == "0,30,40,0,0"  # the deleted detection is excluded
+    finally:
+        for field, value in original.items():
+            setattr(shared_state, field, value)
+        widget.clicked_index = original_clicked_index
+
+
+def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
+    """Same bug as the 'D' key path, via right-click deletion instead."""
+    original = {
+        field: getattr(shared_state, field)
+        for field in (
+            "current_index", "DATA", "TRACKED", "G",
+            "csv_folder_to_save", "UPDATED_DATA_FILE",
+        )
+    }
+    original_clicked_index = getattr(widget, "clicked_index", None)
+
+    try:
+        shared_state.current_index = 0
+        shared_state.DATA = [[(10, 20, 0, 0), (30, 40, 0, 0)]]
+        shared_state.TRACKED = False
+        shared_state.csv_folder_to_save = str(tmp_path)
+        shared_state.UPDATED_DATA_FILE = "updated.csv"
+        shared_state.G = generate_graph(
+            shared_state.DATA, max_score=1600, score_func="squared", tracked=False
+        )
+        widget.clicked_index = 1
+
+        layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
+        event = SimpleNamespace(handled=False)
+        widget.delete_det_by_mouse(layer, event)
+
+        lines = (tmp_path / "updated.csv").read_text().splitlines()
+        assert lines[0] == "tframe,y,x,displ_y,displ_x"
+        assert lines[1] == "0,10,20,0,0"  # the deleted detection (index 1) is excluded
+        assert event.handled is True
+    finally:
+        for field, value in original.items():
+            setattr(shared_state, field, value)
+        widget.clicked_index = original_clicked_index
