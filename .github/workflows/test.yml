@@ -28,13 +28,31 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      # napari/Qt need a real (or virtual) display even for headless tests
-      - uses: pyvista/setup-headless-display-action@v2
+      # napari/Qt need GL/X11 libraries and a virtual display on Linux runners
+      # (macOS/Windows runners already provide a usable display). Installed
+      # explicitly rather than via a third-party action, since the package
+      # name libgl1-mesa-glx no longer exists on Ubuntu 24.04 -- libgl1 is
+      # its replacement.
+      - name: Install Linux GUI/OpenGL libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libxkbcommon-x11-0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-xinerama0 libxcb-xfixes0 \
+            libxcb-cursor0 x11-utils xvfb
 
       - name: Install tox
         run: python -m pip install --upgrade pip tox tox-gh-actions
 
-      - name: Run tests
+      - name: Run tests (Linux, under a virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum python -m tox
+        env:
+          PLATFORM: ${{ matrix.platform }}
+
+      - name: Run tests (macOS/Windows)
+        if: runner.os != 'Linux'
         run: python -m tox
         env:
           PLATFORM: ${{ matrix.platform }}
