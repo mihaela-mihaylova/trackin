@@ -34,6 +34,35 @@ To install latest development version :
     pip install git+https://github.com/mihaela-mihaylova/trackin.git
 
 
+## Getting Started
+
+1. Launch napari (`napari` from the command line) and open the plugin via
+   **Plugins > trackin > Trackin**.
+2. Click **Load Images** and select a folder of per-frame image files.
+   Files must be named with numeric filenames (e.g. `0.png`, `1.png`, ...),
+   one per frame, in a supported format: `jpg`, `jpeg`, `png`, `tif`, `tiff`,
+   `bmp`, or `gif`.
+3. Click **Load Detections** and select a CSV of detections for those
+   frames. Required columns: `tframe`, `y`, `x`. Optional columns:
+   `displ_y`, `displ_x` (default to `0` if omitted), and `track_no` (include
+   it if the detections already belong to tracks from a prior run).
+4. Step through frames with the arrow keys or the frame slider, and
+   left-click a detection to add it to the current track (this also
+   advances to the next frame). Shift-click on the image to add a detection
+   that's missing; right-click, or **D**, to delete one.
+5. Use **Shift+Q** to accept the current track, **W** to save a segment
+   without ending it, **Shift+Z** to delete a segment, and **X** to remove
+   all outgoing connections from the current node. The in-app **?** button
+   lists the full set of mouse and keyboard shortcuts.
+6. Optionally, click **Add Track File** to load a `track_session_*.csv`
+   from a previous session so newly accepted tracks continue its track
+   numbering instead of restarting from 1. It must have exactly these
+   columns, in this order: `tframe, y, x, displ_y, displ_x, track_no`.
+
+Accepted tracks are appended to a `track_session_*.csv` file saved next to
+the detections CSV; any detections not yet assigned to a track are kept in
+an `upd_*.csv` file in the same folder.
+
 ## Contributing
 
 Contributions are very welcome. Tests can be run with [tox], please ensure

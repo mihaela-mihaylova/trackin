@@ -1,11 +1,7 @@
-import sys
 import networkx as nx
-import random
 import math
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-import heapq
 from datetime import datetime
 
 # a basic score function to be used when generating edges

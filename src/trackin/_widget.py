@@ -2,14 +2,15 @@ import os
 import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
-from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QLabel  
+from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QDialog, QSlider, QApplication, QSizePolicy, QToolTip
 from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
 from napari.utils.events import EventEmitter
 from .shared_state import shared_state
 from datetime import datetime
-from .tracking import find_node_by_attributes, add_node_with_dummy_edges
+from pathlib import PurePosixPath
+from .tracking import add_node_with_dummy_edges
 from napari.utils.notifications import show_info
 
 viewer = None
@@ -19,7 +20,13 @@ csv_data = None
 images_loaded = False
 csv_loaded = False
 container = None  # Global reference to the container
-pan_direction = None  # Direction to pan the viewer
+
+# napari's camera has no built-in zoom limits, so scrolling can otherwise
+# zoom out until the view is a blank speck. These are recomputed relative to
+# each dataset's fit-to-view zoom once images are loaded (see choose_folder).
+MIN_ZOOM = 0.05
+MAX_ZOOM = 100.0
+ZOOM_STEP = 1.1  # multiplicative zoom change per wheel notch
 
 
 # EVENT EMITTERS
@@ -32,12 +39,50 @@ save_segment_event = EventEmitter(source=None, type_name='save_segment')
 delete_all_connections_event = EventEmitter(source=None, type_name='delete_all_connections')
 graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 
+# utils.py wires up handlers for the events above (accept_track,
+# delete_segment, etc.) via .connect() calls at module level -- that only
+# happens once utils.py is actually imported. Previously the *only* thing
+# that imported it was trackin/__init__.py's `from .utils import
+# build_graph`; now that __init__.py is empty (napari resolves the widget
+# via trackin._widget:TrackinWidget directly, never importing __init__'s
+# old contents), we need to trigger that import here instead. Placed after
+# the event emitters above, not at the top of the file: utils.py imports
+# these six names back from this module, so this only works if they
+# already exist in this (still-initializing) module's namespace first.
+from . import utils  # noqa: F401
 
 # Create timers for handling continuous key press events
 right_timer = QTimer()
 left_timer = QTimer()
-pan_timer = QTimer()  # Timer to handle continuous scrolling
+REPEAT_INITIAL_DELAY = 350  # ms to hold a key before continuous scrolling kicks in
+right_key_held = False
+left_key_held = False
 
+
+def clamp_camera_zoom(event=None):
+    """Keep the camera zoom within [MIN_ZOOM, MAX_ZOOM]."""
+    zoom = viewer.camera.zoom
+    clamped = min(max(zoom, MIN_ZOOM), MAX_ZOOM)
+    if clamped != zoom:
+        viewer.camera.zoom = clamped
+
+def on_mouse_wheel_zoom(viewer, event):
+    """Zoom the camera on plain mouse scroll, replacing napari's default
+    wheel-zoom so we control the direction and clamp range ourselves,
+    regardless of the OS/trackpad scroll convention."""
+    if event.modifiers:
+        return  # leave modified scroll (e.g. Control = change frame) alone
+
+    delta = event.delta[1]
+    if event.native is not None and event.native.inverted():
+        delta = -delta
+    if delta == 0:
+        return
+
+    factor = ZOOM_STEP if delta > 0 else 1 / ZOOM_STEP
+    new_zoom = viewer.camera.zoom * factor
+    viewer.camera.zoom = min(max(new_zoom, MIN_ZOOM), MAX_ZOOM)
+    event.handled = True
 
 def initialize_viewer(napari_viewer):
     """Initialize the Napari viewer object."""
@@ -46,6 +91,12 @@ def initialize_viewer(napari_viewer):
 
     # Set up key bindings for the viewer
     setup_keybindings()
+
+    # Take over scroll-to-zoom so direction and range are under our control
+    viewer.mouse_wheel_callbacks.append(on_mouse_wheel_zoom)
+
+    # Backstop in case zoom changes through some other path (e.g. reset_view)
+    viewer.camera.events.zoom.connect(clamp_camera_zoom)
 
     # Set up the timers for handling repeated key presses
     right_timer.timeout.connect(next_image)
@@ -107,7 +158,7 @@ def check_and_update_image():
 @magicgui(call_button="Load Images", auto_call=True)
 def choose_folder():
     """Open a dialog to select a folder and load images from it."""
-    global images, image_files, viewer, images_loaded
+    global images, image_files, viewer, images_loaded, MIN_ZOOM, MAX_ZOOM
     folder_path = QFileDialog.getExistingDirectory(None, "Select Folder with Images")
     if folder_path:
         clear_detections_and_tracks()
@@ -117,8 +168,19 @@ def choose_folder():
         if images:
             viewer.layers.clear()
             viewer.add_image(images[shared_state.current_index], name=os.path.basename(image_files[shared_state.current_index]))
+            # napari fits the view to the image on add; use that as the
+            # baseline for how far this dataset can be zoomed in/out
+            fit_zoom = viewer.camera.zoom
+            MIN_ZOOM = fit_zoom * 0.5
+            MAX_ZOOM = fit_zoom * 30
             check_and_update_image()
             update_slider_max()
+
+choose_folder.call_button.native.setToolTip(
+    "Select a folder of image frames.\n"
+    "Files must be named with numeric filenames (e.g. 0.png, 1.png, ...),\n"
+    "one per frame, using a supported format: jpg, jpeg, png, tif, tiff, bmp, gif."
+)
 
 @magicgui(call_button="Load Detections", auto_call=True)
 def load_csv():
@@ -158,9 +220,37 @@ def load_csv():
 
         compute_track_lines()
 
+        # Start inspection from the beginning, regardless of the frame
+        # the viewer happened to be on before these detections were loaded
+        shared_state.current_index = 0
+        image_slider.image_index.value = shared_state.current_index
+
         check_and_update_image()
 
-        
+        update_file_paths_display()
+
+        # Move keyboard focus off the slider's editable readout (left focused,
+        # and blinking its text cursor, after the file dialog closes) and back
+        # onto the main panel so shortcuts like arrow keys work immediately
+        if container:
+            container.setFocus()
+
+load_csv.call_button.native.setToolTip(
+    "Select a CSV of detections for the loaded image frames.\n"
+    "Required columns: tframe, y, x.\n"
+    "Optional columns: displ_y, displ_x (default to 0 if omitted),\n"
+    "and track_no (include it if these detections are already tracked)."
+)
+
+def generate_upd_track_filename(csv_path, timestamp):
+    """Build the filename for a track file that continues a previous
+    session's track numbering, from the selected CSV's path and a
+    timestamp. Handles both / and \\ path separators, and keeps
+    everything before the last dot (so "my.tracks.v2.csv" becomes
+    "my.tracks.v2", not "my")."""
+    csv_filename = PurePosixPath(csv_path.replace('\\', '/')).stem
+    return f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
+
 # loads a file with already accepted tracks and adds these and any subsequent accepted tracks to a new track file
 @magicgui(call_button="Add Track File", auto_call=True)
 def load_track_file():
@@ -172,11 +262,10 @@ def load_track_file():
 
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
-        csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # name for file where leftover positions are preserved
-        shared_state.UPD_TRACK_FILE = f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
+        shared_state.UPD_TRACK_FILE = generate_upd_track_filename(csv_path, timestamp)
 
         try:
             track_df = pd.read_csv(csv_path).astype(int)
@@ -227,11 +316,26 @@ def load_track_file():
     
             shared_state.MAX_TRACK_ID = max_track_no
 
+            if track_file_label is not None:
+                track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
+                # set_path() defaults the tooltip to the same string as the
+                # display text; override it with the actual full path instead
+                track_file_label.setToolTip(csv_path)
+
+            update_file_paths_display()
+
         except pd.errors.ParserError as e:
             QMessageBox.critical(None, "File Error", f"The selected file is not a valid CSV or is malformed: {e}")
             return
         except Exception as e:
             QMessageBox.critical(None, "Error", f"An unexpected error occurred: {e}")
+
+load_track_file.call_button.native.setToolTip(
+    "Select a CSV of tracks accepted in a previous session, so new tracks\n"
+    "continue numbering from where that session left off.\n"
+    "Must have exactly these columns, in this order:\n"
+    "tframe, y, x, displ_y, displ_x, track_no."
+)
 
 # go to following image
 def next_image(event=None):
@@ -270,6 +374,20 @@ def image_slider(image_index: int = 0):
         # Refocus the container after slider change
         if container:
             container.setFocus()
+
+def _frame_slider_wheel_event(qevent):
+    """Step exactly one frame per wheel event, ignoring the reported scroll
+    magnitude -- trackpads can report a delta worth more than one notch for
+    a single gesture, which otherwise skips frames."""
+    delta = qevent.angleDelta().y()
+    if delta > 0:
+        previous_image()
+    elif delta < 0:
+        next_image()
+    qevent.accept()
+
+for _qslider in image_slider.image_index.native.findChildren(QSlider):
+    _qslider.wheelEvent = _frame_slider_wheel_event
 
 def update_slider_max():
     """Update the maximum value of the slider based on the number of images."""
@@ -467,14 +585,19 @@ def delete_detection(layer, event=None, use_key=False):
     clicked_index = None
     # Determine the clicked index based on input type
     if not use_key:  # Called from mouse event
-        if event.button == 2:  # Right-click
-            click_position = event.position
-            print(f'clicked position:{click_position}')
-            clicked_index = layer.get_value(click_position, world=True)
-            if clicked_index is None:
-                return  # No valid point was clicked, exit
+        if event.button != 2:  # Not a right-click: nothing to do here, let the
+            return              # event fall through to napari's default pan/zoom.
+        click_position = event.position
+        print(f'clicked position:{click_position}')
+        clicked_index = layer.get_value(click_position, world=True)
+        if clicked_index is None:
+            return  # No valid point was clicked, exit
     else:  # Called using the 'D' key
         curr_track = shared_state.track
+        # e.g. right after images are reloaded, before a new CSV is loaded
+        if not curr_track:
+            print("No detections loaded to delete with 'D' key.")
+            return
         if curr_track[shared_state.current_index] != -1:
             clicked_index = curr_track[shared_state.current_index]  # Use the tracked index if available
         else:
@@ -517,6 +640,9 @@ def delete_det_by_key(layer):
     layer.refresh()
     update_image()
 
+    # save up-to-date version of DATA
+    write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
+
     print(f"Removed node {node_name} with coordinates {point_coords}.")
 
 
@@ -535,6 +661,10 @@ def delete_det_by_mouse(layer, event):
 
     layer.refresh()
     update_image()
+
+    # save up-to-date version of DATA
+    write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
+
     print(f"Removed node {node_name} with coordinates {point_coords}.")
 
     # Mark the event as handled to stop further processing
@@ -694,28 +824,317 @@ def setup_keybindings():
     viewer.bind_key('Shift-Z', deleteSegment) # delete a whole segment
     viewer.bind_key('X', deleteAllConnections) # delete all connections from a node, apart from the D-X edge
 
-def trackin_main():
-    """Main function to show the plugin interface."""
-    global container, dets_label, conns_label
-    container = QWidget()
-    layout = QVBoxLayout(container)  # Create a vertical layout
-    
-    # Use the magicgui widgets and add them directly to the layout
-    layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
-    layout.addWidget(load_csv.native)
-    layout.addWidget(load_track_file.native)
-    layout.addWidget(image_slider.native)  # Add the slider widget
-    
-    # Set layout to the container
-    container.setLayout(layout)
+def show_help():
+    """Display a dialog listing the keyboard and mouse shortcuts."""
 
-    # Set focus policy and initially focus the container
-    container.setFocusPolicy(Qt.StrongFocus)
-    container.setFocus()
-    viewer.window.qt_viewer.dockLayerList.setVisible(False)
-    viewer.window.qt_viewer.dockLayerControls.setVisible(False)
+    def section(title, rows):
+        row_html = "".join(
+            f'<tr><td style="padding:2px 18px 2px 0; white-space:nowrap;">'
+            f'<code style="background:#3a3a3a; color:#eee; padding:1px 6px; '
+            f'border-radius:3px;">{key}</code></td>'
+            f'<td style="padding:2px 0;">{desc}</td></tr>'
+            for key, desc in rows
+        )
+        return (
+            f'<p style="margin:14px 0 4px 0; font-size:12pt; font-weight:600;">{title}</p>'
+            f'<table style="border-collapse:collapse;">{row_html}</table>'
+        )
 
-    return container
+    help_html = (
+        '<div style="font-size:10.5pt;">'
+        + section(
+            "Navigation",
+            [
+                ("Right Arrow", "Next frame (hold to scroll continuously)"),
+                ("Left Arrow", "Previous frame (hold to scroll continuously)"),
+                ("Slider", "Jump to a specific frame"),
+            ],
+        )
+        + section(
+            "Mouse (on the image)",
+            [
+                ("Left-click", "Add the clicked detection to the current track and advance to the next frame"),
+                ("Shift + Left-click", "Add a new detection at that position"),
+                ("Right-click", "Delete the clicked detection"),
+            ],
+        )
+        + section(
+            "Keyboard shortcuts",
+            [
+                ("D", "Delete the tracked detection in the current frame"),
+                ("Shift+Q", "Accept the current track"),
+                ("W", "Save the current segment (up to the current frame)"),
+                ("Shift+Z", "Delete the current segment (up to the current frame)"),
+                ("X", "Delete all outgoing connections from the current node"),
+            ],
+        )
+        + "</div>"
+    )
+
+    dialog = QDialog(None)
+    dialog.setWindowTitle("Trackin Help")
+    dialog.setMinimumWidth(480)
+
+    layout = QVBoxLayout(dialog)
+    label = QLabel(help_html)
+    label.setTextFormat(Qt.RichText)
+    label.setWordWrap(True)
+    layout.addWidget(label)
+
+    close_button = QPushButton("Close")
+    close_button.clicked.connect(dialog.accept)
+    layout.addWidget(close_button)
+
+    dialog.exec_()
+
+track_file_label = None  # Shows which track file was last loaded, if any
+
+# Persistent, copyable output-file-path rows (see create_path_row / update_file_paths_display)
+leftover_row = None
+leftover_path_field = None
+session_row = None
+session_path_field = None
+upd_track_row = None
+upd_track_path_field = None
+
+# Collapsible "Session Files" card wrapping the three rows above
+session_files_header = None
+session_files_content = None
+
+def set_session_files_expanded(expanded):
+    """Show/hide the Session Files card's content and update its header arrow."""
+    session_files_content.setVisible(expanded)
+    arrow = "▾" if expanded else "▸"  # ▾ expanded, ▸ collapsed
+    session_files_header.setText(f"{arrow} Session Files")
+
+def toggle_session_files():
+    set_session_files_expanded(not session_files_content.isVisible())
+
+class ElidedPathLabel(QLabel):
+    """A QLabel that displays a long path with an ellipsis instead of
+    forcing its row (and so the sidebar panel) wider than the space
+    actually available, while keeping the untruncated path (in
+    .full_path, and as this label's tooltip) available for copying.
+    Re-elides on resize so it stays correct if the panel is resized."""
+
+    def __init__(self):
+        super().__init__("")
+        self.full_path = ""
+        # QSizePolicy.Ignored means Qt's layout engine never lets this
+        # label's text length dictate how wide its row/panel must be --
+        # it always shrinks to whatever width it's actually given.
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(0)
+
+    def set_path(self, path):
+        self.full_path = path
+        self.setToolTip(path)
+        self._update_elided_text()
+
+    def _update_elided_text(self):
+        elided = self.fontMetrics().elidedText(self.full_path, Qt.ElideMiddle, self.width())
+        super().setText(elided)
+
+    def resizeEvent(self, event):
+        self._update_elided_text()
+        super().resizeEvent(event)
+
+def show_field_explanation(button, explanation):
+    """Show a click-triggered tooltip bubble explaining a field, positioned
+    at the button that was clicked. Dismisses automatically on click-
+    elsewhere or mouse-move, same as a normal hover tooltip would."""
+    QToolTip.showText(button.mapToGlobal(button.rect().bottomLeft()), explanation, button)
+
+def create_info_button(explanation):
+    """Build a small pale-yellow 'i' button that shows explanation in a
+    click-triggered tooltip bubble. Uses 'i' rather than '?' and a
+    deliberately different color from the blue Help button, since that
+    button's '?' is reserved for the keybinding cheatsheet -- this is a
+    small, single-field hint, a different kind of help entirely."""
+    info_button = QPushButton("i")
+    info_button.setFixedSize(11, 11)
+    info_button.setCursor(Qt.PointingHandCursor)
+    info_button.setStyleSheet(
+        "QPushButton {"
+        "  background-color: #FFFFE0;"
+        "  color: black;"
+        "  border: 1px solid #d9c05a;"
+        "  border-radius: 5px;"
+        "  font-weight: bold;"
+        "  font-style: italic;"
+        "  font-size: 8px;"
+        "  padding: 0px;"
+        "}"
+        "QPushButton:hover { background-color: #FFF8B0; }"
+        "QPushButton:pressed { background-color: #FFEE99; }"
+    )
+    info_button.clicked.connect(lambda: show_field_explanation(info_button, explanation))
+    return info_button
+
+def create_path_row(description, explanation):
+    """Build a labeled, copyable file-path row: a description label (with a
+    small info button explaining what the file contains) above an
+    ellipsis-truncated path (full path on hover) with a Copy button. Returns
+    (row_widget, path_label) so callers can toggle the row's visibility and
+    update its path later."""
+    row_widget = QWidget()
+    row_layout = QVBoxLayout(row_widget)
+    row_layout.setContentsMargins(0, 0, 0, 0)
+    row_layout.setSpacing(2)
+
+    label_row_layout = QHBoxLayout()
+    description_label = QLabel(description)
+    description_label.setStyleSheet("font-weight: 600; font-size: 10pt;")
+    label_row_layout.addWidget(description_label)
+    label_row_layout.addWidget(create_info_button(explanation))
+    label_row_layout.addStretch()
+    row_layout.addLayout(label_row_layout)
+
+    path_row_layout = QHBoxLayout()
+    path_label = ElidedPathLabel()
+    path_row_layout.addWidget(path_label, stretch=1)
+
+    copy_button = QPushButton("Copy")
+    copy_button.setFixedWidth(50)
+    # Read the label's current full path at click time rather than capturing
+    # one now, since this row's widget is reused and updated across loads
+    copy_button.clicked.connect(lambda: QApplication.clipboard().setText(path_label.full_path))
+    path_row_layout.addWidget(copy_button)
+
+    row_layout.addLayout(path_row_layout)
+    return row_widget, path_label
+
+def update_file_paths_display():
+    """Show/hide and refresh the output-file-path rows based on current state."""
+    if csv_loaded:
+        leftover_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE))
+        leftover_row.setVisible(True)
+        session_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))
+        session_row.setVisible(True)
+        # The whole Session Files card (header included) only makes sense
+        # once there's a CSV loaded -- with just images loaded, there's
+        # nothing to show yet.
+        if session_files_header is not None:
+            session_files_header.setVisible(True)
+    else:
+        leftover_row.setVisible(False)
+        session_row.setVisible(False)
+        if session_files_header is not None:
+            session_files_header.setVisible(False)
+
+    if shared_state.MAX_TRACK_ID is not None:
+        upd_track_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE))
+        upd_track_row.setVisible(True)
+    else:
+        upd_track_row.setVisible(False)
+
+    # Auto-expand the card whenever a row's content actually changed, so a
+    # newly added file (e.g. from "Add Track File") is immediately visible
+    # rather than hidden behind a collapsed header the user has to think to
+    # open. Only relevant once the header itself is showing (csv_loaded).
+    if csv_loaded and session_files_content is not None:
+        set_session_files_expanded(True)
+
+class TrackinWidget(QWidget):
+    """Dock widget for the plugin interface. napari's dock-widget injection
+    only introspects a widget *class's* __init__ signature for a
+    napari_viewer parameter (a plain function's own .__init__ is just the
+    generic one every function object inherits, so this used to be a bare
+    function and never actually received the real viewer -- see
+    _instantiate_dock_widget in napari's qt_main_window.py). napari
+    automatically passes in the currently active viewer when this is
+    instantiated as a dock widget via the Plugins menu."""
+
+    def __init__(self, napari_viewer):
+        super().__init__()
+        initialize_viewer(napari_viewer)
+
+        global container, dets_label, conns_label, track_file_label
+        global leftover_row, leftover_path_field, session_row, session_path_field
+        global upd_track_row, upd_track_path_field
+        global session_files_header, session_files_content
+        container = self
+        layout = QVBoxLayout(container)  # Create a vertical layout
+
+        # Small round help button, opens a dialog listing keyboard/mouse shortcuts
+        help_button = QPushButton("?")
+        help_button.setFixedSize(24, 24)
+        help_button.setToolTip("Help")
+        help_button.setCursor(Qt.PointingHandCursor)
+        help_button.setStyleSheet(
+            "QPushButton {"
+            "  background-color: #2b7de9;"
+            "  color: white;"
+            "  border: none;"
+            "  border-radius: 12px;"
+            "  font-weight: bold;"
+            "}"
+            "QPushButton:hover { background-color: #4a90f0; }"
+            "QPushButton:pressed { background-color: #1c5fc2; }"
+        )
+        help_button.clicked.connect(show_help)
+        layout.addWidget(help_button, alignment=Qt.AlignRight)
+
+        # Use the magicgui widgets and add them directly to the layout
+        layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
+        layout.addWidget(load_csv.native)
+        layout.addWidget(load_track_file.native)
+
+        # Shows the loaded track file's name once "Add Track File" succeeds,
+        # since that success is otherwise only reported via a transient toast
+        track_file_label = ElidedPathLabel()
+        track_file_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(track_file_label)
+
+        layout.addWidget(image_slider.native)  # Add the slider widget
+
+        # Collapsible "Session Files" card wrapping the copyable output-file-path
+        # rows, shown/updated as state changes. Starts collapsed since there's
+        # nothing to show until a CSV is loaded; update_file_paths_display()
+        # auto-expands it whenever a row's content actually changes.
+        session_files_header = QPushButton("▸ Session Files")
+        session_files_header.setFlat(True)
+        session_files_header.setStyleSheet(
+            "QPushButton { text-align: left; font-weight: 600; border: none; padding: 2px 0; }"
+        )
+        session_files_header.setCursor(Qt.PointingHandCursor)
+        session_files_header.clicked.connect(toggle_session_files)
+        session_files_header.setVisible(False)  # nothing to show until a CSV is loaded
+        layout.addWidget(session_files_header)
+
+        session_files_content = QWidget()
+        file_paths_layout = QVBoxLayout(session_files_content)
+        file_paths_layout.setContentsMargins(0, 4, 0, 14)
+        file_paths_layout.setSpacing(8)
+
+        leftover_row, leftover_path_field = create_path_row(
+            "Leftover detections",
+            "Contains detections that are left after the ones in accepted tracks have been removed.",
+        )
+        session_row, session_path_field = create_path_row(
+            "Tracks accepted this session",
+            "Contains the detections included in the accepted tracks, together with the respective generated track ids.",
+        )
+        upd_track_row, upd_track_path_field = create_path_row(
+            "Combined tracks",
+            "Contains the tracks from the added track file, together with the accepted tracks in this session.",
+        )
+
+        for row in (leftover_row, session_row, upd_track_row):
+            row.setVisible(False)
+            file_paths_layout.addWidget(row)
+
+        session_files_content.setVisible(False)
+        layout.addWidget(session_files_content)
+
+        # Set layout to the container
+        container.setLayout(layout)
+
+        # Set focus policy and initially focus the container
+        container.setFocusPolicy(Qt.StrongFocus)
+        container.setFocus()
+        viewer.window.qt_viewer.dockLayerList.setVisible(False)
+        viewer.window.qt_viewer.dockLayerControls.setVisible(False)
 
 
 def clear_detections_and_tracks():
@@ -740,7 +1159,50 @@ def clear_detections_and_tracks():
     shared_state.TRACKED = False
     shared_state.MAX_TRACK_ID = None
     shared_state.G = None
-    
+    shared_state.N_TRACKS = 0
+    shared_state.NUM_DETS = None
+    shared_state.NUM_CONN = None
+
+    # Reset the filenames themselves too, not just MAX_TRACK_ID -- so that if
+    # any future code path is ever reached with an empty/cleared DATA or
+    # track, it fails loudly (e.g. IsADirectoryError from a blank path)
+    # rather than silently writing into the *previous* dataset's files.
+    shared_state.SESSION_FILE = ''
+    shared_state.UPDATED_DATA_FILE = ''
+    shared_state.UPD_TRACK_FILE = ''
+
+    # Hide all three rows unconditionally rather than routing through
+    # update_file_paths_display(): that function's leftover/session
+    # visibility is gated on the module-level csv_loaded flag, which is
+    # never reset to False here or in choose_folder() -- so if a CSV had
+    # already been loaded once this session and images are reloaded
+    # without a new CSV yet, csv_loaded is still stale True and would
+    # re-show the *previous* dataset's file paths. Any caller that goes on
+    # to load a fresh CSV (e.g. load_csv() reloading) will re-show the
+    # rows correctly via its own update_file_paths_display() call right after.
+    if leftover_row is not None:
+        leftover_row.setVisible(False)
+        session_row.setVisible(False)
+        upd_track_row.setVisible(False)
+
+    # Hide the whole Session Files card (not just collapse it) too, since
+    # there's nothing left in it to show until a new CSV is loaded.
+    if session_files_content is not None:
+        set_session_files_expanded(False)
+        session_files_header.setVisible(False)
+
+    # Clear the "Track file loaded: ..." label too -- it previously wasn't
+    # touched here at all, so it kept showing the *previous* dataset's
+    # loaded track file even after images were reloaded.
+    if track_file_label is not None:
+        track_file_label.set_path("")
+
+    # update_labels() (the Detections/Connections counts) only runs in
+    # response to this event -- without firing it here, those labels kept
+    # showing the *previous* dataset's stale counts until some unrelated
+    # keypress happened to fire the event afterward.
+    graph_updated_event()
+
     print("Cleared all detections and tracks.")
 
 def write_updated_detections_to_file(data, updated_data_file, csv_path):
@@ -755,16 +1217,34 @@ def write_updated_detections_to_file(data, updated_data_file, csv_path):
                 f.write(f"{i},{data[i][j][0]},{data[i][j][1]},{data[i][j][2]},{data[i][j][3]}\n")
     f.close()
 
+def _maybe_start_repeat_right():
+    """Only start auto-repeat if the key is still held after the initial delay."""
+    if right_key_held:
+        start_timer(right_timer)
+
+def _maybe_start_repeat_left():
+    """Only start auto-repeat if the key is still held after the initial delay."""
+    if left_key_held:
+        start_timer(left_timer)
+
 def handle_right(viewer):
     """Handle the Right arrow key press and release."""
-    start_timer(right_timer)  # Start on key press
+    global right_key_held
+    right_key_held = True
+    next_image()  # A single tap always advances exactly one frame
+    QTimer.singleShot(REPEAT_INITIAL_DELAY, _maybe_start_repeat_right)  # Auto-repeat only if held
     yield  # Wait for key release
+    right_key_held = False
     stop_timer(right_timer)  # Stop on key release
 
 def handle_left(viewer):
     """Handle the Left arrow key press and release."""
-    start_timer(left_timer)  # Start on key press
+    global left_key_held
+    left_key_held = True
+    previous_image()  # A single tap always advances exactly one frame
+    QTimer.singleShot(REPEAT_INITIAL_DELAY, _maybe_start_repeat_left)  # Auto-repeat only if held
     yield  # Wait for key release
+    left_key_held = False
     stop_timer(left_timer)  # Stop on key release
 
 def start_timer(timer):

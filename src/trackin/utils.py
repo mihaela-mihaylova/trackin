@@ -1,11 +1,7 @@
-import sys
 import networkx as nx
-import random
 import math
 import numpy as np
-import matplotlib.pyplot as plt
 import pandas as pd
-import heapq
 from datetime import datetime
 from .tracking import generate_graph, generate_track, generate_tracks, remove_all_successors
 from ._widget import csv_loaded_event, remove_track_node_event, accept_track_event, delete_segment_event, save_segment_event, delete_all_connections_event
@@ -14,12 +10,6 @@ from napari.utils.notifications import show_info
 from napari.utils.events import EventEmitter
 import os
 
-
-'''def safeindex(l,i):
-	try:
-		return l.index(i)
-	except ValueError: 
-		return -1'''
 
 def track_to_posarray( trackp ):
     if trackp is None:
@@ -34,23 +24,20 @@ def track_to_posarray( trackp ):
         return shared_state.track
 
 def send_track():
-	# load up-to-date values of variables
-	data = shared_state.DATA
-	graph = shared_state.G
-	shared_state.track = track_to_posarray( generate_track( graph ) )
-
-#built_graph_event.connect(send_track)
-
-'''def update_counts():
-	return dict(npos=G.number_of_nodes()-2-2*(len(DATA)-1),
-		nconn=G.number_of_edges()-2*(len(DATA)))'''
+    # load up-to-date values of variables
+    data = shared_state.DATA
+    graph = shared_state.G
+    shared_state.track = track_to_posarray( generate_track( graph ) )
 
 def accept_track():
-    shared_state.N_TRACKS += 1
     track = shared_state.track
-    if track is None:
+    # Also catches track == [] (e.g. right after images are reloaded, before
+    # a new CSV is loaded) -- not just None -- so this doesn't silently open
+    # the *previous* dataset's SESSION_FILE and write a header into it.
+    if not track:
         show_info('No detections left.')
         return
+    shared_state.N_TRACKS += 1
     track_with_nodes = []
     session_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)
     if shared_state.MAX_TRACK_ID is not None:
@@ -104,6 +91,13 @@ accept_track_event.connect(accept_track)
 # remove all the obsolete edges connected to nodes in a track segment
 def save_segment():
     """Save the currently defined segment to the graph."""
+    # e.g. right after images are reloaded, before a new CSV is loaded --
+    # without this, the segment-building part below is a harmless no-op
+    # (empty slice), but the send_track() call at the end still runs and
+    # crashes on shared_state.G being None.
+    if not shared_state.track:
+        show_info('No detections left.')
+        return
     s = shared_state.track[0:shared_state.current_index+1]
     if len(s) > 1:
         for i in range(len(s) - 1):
@@ -151,7 +145,12 @@ save_segment_event.connect(save_segment)
 def delete_segment():
     segment_to_delete = []
     updated_data_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE)
-    if shared_state.NUM_DETS == 0:
+    # `not shared_state.track` also catches track == [] (e.g. right after
+    # images are reloaded, before a new CSV is loaded); NUM_DETS alone isn't
+    # enough there since it can still hold a stale nonzero value from the
+    # *previous* dataset, which would otherwise let this function through
+    # to truncate-and-overwrite that dataset's UPDATED_DATA_FILE.
+    if not shared_state.NUM_DETS or not shared_state.track:
         show_info('No detections left.')
         return
     for i, p in enumerate(shared_state.track[0:shared_state.current_index+1]):
@@ -182,6 +181,10 @@ delete_segment_event.connect(delete_segment)
 # deletes all edges from a node, apart from an X- or T-edge, 
 # as well as all obsolete edges to nodes in the segment up until the current detection
 def delete_all_connections():
+    # e.g. right after images are reloaded, before a new CSV is loaded
+    if not shared_state.track:
+        show_info('No detections left.')
+        return
     t1 = shared_state.current_index
     i1 = shared_state.track[shared_state.current_index]
     node_name = f'D_{t1}_{i1}'
@@ -208,7 +211,6 @@ def build_graph():
 
     print(f'value of shared.TRACKED in utils:{shared_state.TRACKED}')
     # Generate the graph using the updated global variables
-    #G = generate_graph(data, max_score, score_func, tracked)
     shared_state.G = generate_graph(data, max_score, score_func, tracked)
     
 def track():
@@ -219,10 +221,6 @@ def track():
 
     # Ensure the graph was actually built
     send_track()
-	
+
 csv_loaded_event.connect(track)
 remove_track_node_event.connect(track)
-
-'''@app.route('/frame/<path:path>', methods=['GET'])
-def frame(path):
-    return send_from_directory( FRAMES_DIR, path )'''
