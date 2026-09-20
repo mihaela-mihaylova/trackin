@@ -5,8 +5,8 @@ description = "A human-in-the-loop cell tracking tool."
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [
-  {name = "Mihaela Mihaylova"},
-  {email = "mihaela.b.mihaylova@gmail.com"},
+  {name = "Mihaela Mihaylova", email = "mihaela.b.mihaylova@gmail.com"},
+  {name = "Johannes Textor"},
 ]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",

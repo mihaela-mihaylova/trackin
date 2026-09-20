@@ -63,6 +63,10 @@ Accepted tracks are appended to a `track_session_*.csv` file saved next to
 the detections CSV; any detections not yet assigned to a track are kept in
 an `upd_*.csv` file in the same folder.
 
+## Acknowledgements
+
+Thank you to Ankur Ankan for the helpful discussions on the design of the tool.
+
 ## Contributing
 
 Contributions are very welcome. Tests can be run with [tox], please ensure
