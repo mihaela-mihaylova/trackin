@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "trackin"
+authors:
+  - family-names: "Mihaylova"
+    given-names: "Mihaela"
+  - family-names: "Textor"
+    given-names: "Johannes"
+repository-code: "https://github.com/mihaela-mihaylova/trackin"
+license: GPL-3.0-only
