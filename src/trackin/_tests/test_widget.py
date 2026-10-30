@@ -449,6 +449,32 @@ def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
             setattr(shared_state, field, value)
 
 
+def test_update_image_clears_points_on_frame_without_detections(make_napari_viewer, monkeypatch):
+    """Moving from a frame with detections to a frame without any must
+    clear the points from the screen. Before, nothing was redrawn for an
+    empty frame, so the previous frame's points (and the yellow track
+    marker) stayed visible on it."""
+    viewer = make_napari_viewer()
+    monkeypatch.setattr(widget, "viewer", viewer)
+    monkeypatch.setattr(widget, "images", [np.zeros((20, 20)), np.zeros((20, 20))])
+    monkeypatch.setattr(widget, "image_files", ["0.png", "1.png"])
+    monkeypatch.setattr(widget, "csv_data", pd.DataFrame())  # only needs to be "loaded"
+    monkeypatch.setattr(shared_state, "TRACKED", False)
+    # frame 0 has one detection, which is on the current track; frame 1 has none
+    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0)], []])
+    monkeypatch.setattr(shared_state, "track", [0, -1])
+
+    monkeypatch.setattr(shared_state, "current_index", 0)
+    widget.update_image()
+    assert len(viewer.layers["detections"].data) == 1
+    assert len(viewer.layers["track_point"].data) == 1
+
+    monkeypatch.setattr(shared_state, "current_index", 1)
+    widget.update_image()
+    assert len(viewer.layers["detections"].data) == 0
+    assert len(viewer.layers["track_point"].data) == 0
+
+
 def test_list_image_files_ignores_other_files(tmp_path):
     """Only image files count as frames. Other files in the folder, such as
     macOS's hidden .DS_Store or a notes.txt, must be ignored -- otherwise

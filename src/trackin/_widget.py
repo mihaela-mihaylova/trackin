@@ -520,19 +520,21 @@ def update_image():
         # Ensure the frame number is within the range of DATA
         if 0 <= frame_number < len(shared_state.DATA):
             frame_data = shared_state.DATA[frame_number]
-            if frame_data:  # Only overlay points if data is present
-                columns = ['y', 'x', 'displ_y', 'displ_x'] if not shared_state.TRACKED else ['y', 'x', 'displ_y', 'displ_x', 'track_no']
-                overlay_points(pd.DataFrame(frame_data, columns=columns))
+            # Also called for a frame without detections, so the previous
+            # frame's points are cleared instead of staying on screen
+            columns = ['y', 'x', 'displ_y', 'displ_x'] if not shared_state.TRACKED else ['y', 'x', 'displ_y', 'displ_x', 'track_no']
+            overlay_points(pd.DataFrame(frame_data, columns=columns))
 
 def overlay_points(frame_data):
-    """Overlay circles on the image for each (x, y) in the frame data, with a separate layer for the track point."""
+    """Overlay circles on the image for each (x, y) in the frame data, with a separate layer for the track point.
+
+    For a frame without detections the layers are emptied, so no points of
+    another frame stay on screen."""
     global viewer, points_layer
 
-    if frame_data.empty:
-        print("No frame data provided")
-        return
-
-    # Extract (y, x) positions from the dataframe
+    # Extract (y, x) positions from the dataframe: one row [y, x] per detection.
+    # For a frame without detections this is an empty array with no rows,
+    # which empties the layers below.
     points = np.array([frame_data['y'], frame_data['x']]).T
     curr_track = shared_state.track
     if curr_track is None:
