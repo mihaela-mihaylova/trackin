@@ -137,11 +137,54 @@ def generate_positions_list(df, folder_to_save, n_frames=0):
     shared_state.NUM_DET_PER_FRAME = [len(sublist) for sublist in shared_state.DATA]
     return shared_state.DATA 
 
+def list_image_files(folder_path):
+    """Names of the image files in a folder, in no particular order."""
+    return [f for f in os.listdir(folder_path) if f.lower().endswith(('jpg', 'jpeg', 'png', 'tif', 'tiff', 'bmp', 'gif'))]
+
+def check_image_numbering(file_names):
+    """Return an error message if the image files are not named 0, 1, 2, ...
+    N-1 (one image per frame, no gaps, no duplicates), otherwise None.
+
+    Frame n is shown on the n-th image, so this is what makes every frame
+    number (tframe) match the image with the same name."""
+    if not file_names:
+        return "The folder contains no images."
+    not_numbered = [f for f in file_names if not os.path.splitext(f)[0].isdigit()]
+    if not_numbered:
+        return f"These images are not named with a frame number: {', '.join(sorted(not_numbered)[:10])}."
+    numbers = [int(os.path.splitext(f)[0]) for f in file_names]
+    duplicates = sorted({n for n in numbers if numbers.count(n) > 1})
+    if duplicates:
+        return f"More than one image has frame number: {', '.join(map(str, duplicates[:10]))}."
+    missing = sorted(set(range(max(numbers) + 1)) - set(numbers))
+    if missing:
+        return f"There is no image for frame: {', '.join(map(str, missing[:10]))}" + (" ..." if len(missing) > 10 else "") + "."
+    return None
+
+def check_detection_frames(df, n_images):
+    """Return an error message if detections are in frames that have no
+    image (tframe below 0, or n_images and higher), otherwise None.
+
+    Every tframe has to be shown on the image with the same number, so a
+    detections file with detections that have no image can't be loaded."""
+    without_image = (df['tframe'] < 0) | (df['tframe'] >= n_images)
+    if not without_image.any():
+        return None
+    frames = sorted(df.loc[without_image, 'tframe'].unique())
+    return (
+        f"{int(without_image.sum())} detection(s) are in frame(s) "
+        f"{', '.join(map(str, frames[:10]))}" + (" ..." if len(frames) > 10 else "") + ", "
+        f"but there are only images for frames 0 to {n_images - 1}.\n\n"
+        "Only a detections file in which every detection can be shown on an "
+        f"existing image can be loaded: every tframe must be between 0 and {n_images - 1}. "
+        "To fix this, remove these detections from the file, or load an image "
+        "folder that also contains these frames."
+    )
+
 def load_images_from_folder(folder_path):
     """Load images in numerical order from a given folder."""
-    global images, image_files
     image_files = sorted(
-        [f for f in os.listdir(folder_path) if f.lower().endswith(('jpg', 'jpeg', 'png', 'tif', 'tiff', 'bmp', 'gif'))],
+        list_image_files(folder_path),
         key=lambda x: int(os.path.splitext(x)[0])  # Sort by the numeric value of the filename
     )
     images = []
@@ -168,8 +211,26 @@ def choose_folder():
     global images, image_files, viewer, images_loaded, MIN_ZOOM, MAX_ZOOM
     folder_path = QFileDialog.getExistingDirectory(None, "Select Folder with Images")
     if folder_path:
+        # Check the image names before loading anything, so a folder that
+        # breaks the rule leaves the current session untouched
+        numbering_error = check_image_numbering(list_image_files(folder_path))
+        if numbering_error:
+            QMessageBox.critical(
+                None, "Images Not Loaded",
+                numbering_error + "\n\nImages must be named 0, 1, 2, ... "
+                "(e.g. 0.png, 1.png, 2.png), one per frame, with no missing frames."
+            )
+            return
+        new_images, new_image_files = load_images_from_folder(folder_path)
+        if len(new_images) != len(new_image_files):
+            QMessageBox.critical(
+                None, "Images Not Loaded",
+                f"{len(new_image_files) - len(new_images)} image(s) could not be read, "
+                "so the frames would no longer match the frame numbers."
+            )
+            return
         clear_detections_and_tracks()
-        images, image_files = load_images_from_folder(folder_path)
+        images, image_files = new_images, new_image_files
         shared_state.current_index = 0
         images_loaded = True
         if images:
@@ -201,9 +262,16 @@ def load_csv():
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
         show_info("Detections are being loaded...")
+        # Check the detections before clearing anything, so a file that
+        # breaks the rule leaves the current session untouched
+        new_csv_data = pd.read_csv(csv_path).astype(int)
+        frames_error = check_detection_frames(new_csv_data, len(images))
+        if frames_error:
+            QMessageBox.critical(None, "Detections Not Loaded", frames_error)
+            return
         if csv_loaded:
             clear_detections_and_tracks()
-                
+
         csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -212,8 +280,7 @@ def load_csv():
         # name for file where leftover positions are preserved
         shared_state.UPDATED_DATA_FILE = f'upd_{csv_filename}_{timestamp}.csv'
 
-        csv_data = pd.read_csv(csv_path).astype(int)
-        csv_data = check_and_add_displ_cols(csv_data)
+        csv_data = check_and_add_displ_cols(new_csv_data)
         shared_state.TRACKED = 'track_no' in csv_data.columns
         if shared_state.TRACKED:
             csv_data = csv_data[['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']]

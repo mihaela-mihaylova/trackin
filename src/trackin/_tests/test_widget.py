@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+from skimage.io import imsave
 
 import trackin._widget as widget
 from trackin._widget import (
@@ -68,6 +69,53 @@ def test_generate_positions_list_keeps_empty_frames(tmp_path, monkeypatch):
     assert data[2] == []  # empty frame stays empty instead of shifting
     assert data[3] == [(30, 33, 0, 0)]
     assert data[4] == []
+
+
+def test_check_image_numbering_accepts_consecutive_names():
+    assert widget.check_image_numbering(["2.png", "0.png", "1.png"]) is None
+
+
+def test_check_image_numbering_rejects_missing_frame():
+    message = widget.check_image_numbering(["0.png", "1.png", "3.png"])
+    assert "no image for frame: 2" in message
+
+
+def test_check_image_numbering_rejects_not_starting_at_zero():
+    message = widget.check_image_numbering(["1.png", "2.png"])
+    assert "no image for frame: 0" in message
+
+
+def test_check_image_numbering_rejects_duplicates():
+    message = widget.check_image_numbering(["0.png", "1.png", "01.png"])
+    assert "More than one image has frame number: 1" in message
+
+
+def test_check_image_numbering_rejects_names_without_number():
+    message = widget.check_image_numbering(["0.png", "frame_1.png"])
+    assert "frame_1.png" in message
+
+
+def test_check_image_numbering_rejects_empty_folder():
+    assert widget.check_image_numbering([]) is not None
+
+
+def test_check_detection_frames_rejects_frames_after_last_image():
+    df = pd.DataFrame({"tframe": [0, 1, 3, 3, 4], "y": [1] * 5, "x": [1] * 5})
+    message = widget.check_detection_frames(df, n_images=3)
+    assert "3 detection(s) are in frame(s) 3, 4" in message
+    assert "only images for frames 0 to 2" in message
+    assert "every tframe must be between 0 and 2" in message
+
+
+def test_check_detection_frames_rejects_negative_frames():
+    df = pd.DataFrame({"tframe": [-1, 0], "y": [1, 1], "x": [1, 1]})
+    message = widget.check_detection_frames(df, n_images=3)
+    assert "1 detection(s) are in frame(s) -1" in message
+
+
+def test_check_detection_frames_accepts_when_all_frames_have_images():
+    df = pd.DataFrame({"tframe": [0, 2], "y": [1, 1], "x": [1, 1]})
+    assert widget.check_detection_frames(df, n_images=3) is None
 
 
 def test_add_white_border_grayscale():
@@ -399,3 +447,125 @@ def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
             setattr(widget, name, value)
         for field, value in original_shared_state.items():
             setattr(shared_state, field, value)
+
+
+def test_list_image_files_ignores_other_files(tmp_path):
+    """Only image files count as frames. Other files in the folder, such as
+    macOS's hidden .DS_Store or a notes.txt, must be ignored -- otherwise
+    they would be reported as images not named with a frame number."""
+    for name in ["0.png", "1.TIF", ".DS_Store", "notes.txt"]:
+        (tmp_path / name).write_bytes(b"")
+    assert sorted(widget.list_image_files(str(tmp_path))) == ["0.png", "1.TIF"]
+
+
+# Session file name of the dataset that is open before a test tries to load
+# another folder or CSV. A stand-in only: no file with this name is created.
+OPEN_SESSION_FILE = "track_session_open_dataset_20250101_000000.csv"
+
+
+def _seed_open_dataset(monkeypatch):
+    """State as if a dataset (images and detections) were already open, to
+    check that a refused folder or file leaves it untouched."""
+    monkeypatch.setattr(widget, "images", ["open image"])
+    monkeypatch.setattr(widget, "image_files", ["0.png"])
+    monkeypatch.setattr(widget, "images_loaded", True)
+    monkeypatch.setattr(widget, "csv_loaded", True)
+    monkeypatch.setattr(shared_state, "DATA", [[(1, 2, 0, 0)]])
+    monkeypatch.setattr(shared_state, "track", [0])
+    monkeypatch.setattr(shared_state, "SESSION_FILE", OPEN_SESSION_FILE)
+
+
+def _record_critical_messages(monkeypatch):
+    """Replace the error dialog with one that records its title and text,
+    so a test can check the message without anyone clicking OK."""
+    messages = []
+    monkeypatch.setattr(
+        widget.QMessageBox, "critical",
+        lambda parent, title, text: messages.append((title, text)),
+    )
+    return messages
+
+
+def _assert_open_dataset_untouched():
+    """The dataset set up by _seed_open_dataset is still loaded as it was.
+    An unchanged SESSION_FILE means no new session was started, so accepted
+    tracks would still be saved to the open dataset's session file."""
+    assert widget.images == ["open image"]
+    assert widget.image_files == ["0.png"]
+    assert shared_state.DATA == [[(1, 2, 0, 0)]]
+    assert shared_state.track == [0]
+    assert shared_state.SESSION_FILE == OPEN_SESSION_FILE
+
+
+def test_choose_folder_refuses_missing_image_and_keeps_open_dataset(tmp_path, monkeypatch):
+    """Load Images on a folder with 0.png, 1.png and 3.png (no 2.png) must
+    show the "Images Not Loaded" error naming frame 2, and leave the dataset
+    that was already open exactly as it was. The image names are checked
+    before anything is read, so the (empty) files never need to be opened."""
+    for name in ["0.png", "1.png", "3.png"]:
+        (tmp_path / name).write_bytes(b"")
+    _seed_open_dataset(monkeypatch)
+    messages = _record_critical_messages(monkeypatch)
+    # the folder dialog picks the test folder instead of asking the user
+    monkeypatch.setattr(
+        widget.QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path)
+    )
+
+    widget.choose_folder()
+
+    assert len(messages) == 1
+    title, text = messages[0]
+    assert title == "Images Not Loaded"
+    assert "There is no image for frame: 2" in text
+    _assert_open_dataset_untouched()
+
+
+def test_choose_folder_refuses_unreadable_image_and_keeps_open_dataset(tmp_path, monkeypatch):
+    """Load Images on a correctly numbered folder where one file is not a
+    valid image (1.png) must refuse the folder -- every later image would
+    otherwise shift one frame -- and leave the dataset that was already
+    open exactly as it was."""
+    imsave(str(tmp_path / "0.png"), np.zeros((5, 5), dtype=np.uint8))
+    (tmp_path / "1.png").write_bytes(b"not an image")
+    _seed_open_dataset(monkeypatch)
+    messages = _record_critical_messages(monkeypatch)
+    # the folder dialog picks the test folder instead of asking the user
+    monkeypatch.setattr(
+        widget.QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path)
+    )
+
+    widget.choose_folder()
+
+    # the last message is the refusal (the one before it names the unreadable file)
+    title, text = messages[-1]
+    assert title == "Images Not Loaded"
+    assert "1 image(s) could not be read" in text
+    _assert_open_dataset_untouched()
+
+
+def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_path, monkeypatch):
+    """With 2 images loaded (frames 0 and 1), Load Detections on a CSV with
+    a detection in frame 5 must show the "Detections Not Loaded" error with
+    that frame and the allowed range, and leave the detections and track
+    that were already loaded exactly as they were."""
+    csv_path = tmp_path / "detections.csv"
+    csv_path.write_text("tframe,y,x\n0,10,10\n1,20,20\n5,30,30\n")
+    _seed_open_dataset(monkeypatch)
+    monkeypatch.setattr(widget, "images", ["image 0", "image 1"])  # frames 0 and 1
+    messages = _record_critical_messages(monkeypatch)
+    # the file dialog picks the test CSV instead of asking the user
+    monkeypatch.setattr(
+        widget.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
+    )
+
+    widget.load_csv()
+
+    assert len(messages) == 1
+    title, text = messages[0]
+    assert title == "Detections Not Loaded"
+    assert "1 detection(s) are in frame(s) 5" in text
+    assert "only images for frames 0 to 1" in text
+    assert widget.images == ["image 0", "image 1"]
+    assert shared_state.DATA == [[(1, 2, 0, 0)]]
+    assert shared_state.track == [0]
+    assert shared_state.SESSION_FILE == OPEN_SESSION_FILE
