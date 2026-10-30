@@ -112,16 +112,23 @@ def check_and_add_displ_cols(df):
         df['displ_y'] = 0
     return df
 
-def generate_positions_list(df, folder_to_save):
-    """Load positions data into a list of lists, required by our tracking algorithm"""
-    for _, dft in df.groupby('tframe'):
-        positions = []
-        for _, row in dft.iterrows():
-            if not shared_state.TRACKED:
-                positions.append((row['y'], row['x'], row['displ_y'], row['displ_x']))
-            else:
-                positions.append((row['y'], row['x'], row['displ_y'], row['displ_x'], row['track_no']))
+def generate_positions_list(df, folder_to_save, n_frames=0):
+    """Load positions data into a list of lists, required by our tracking algorithm.
 
+    Frames are indexed by their frame number (tframe), so a frame without
+    detections stays an empty list instead of shifting all later frames onto
+    the wrong images. The list covers at least n_frames frames (the number of
+    loaded images), so frames after the last detection exist too."""
+    num_frames = max(n_frames, int(df['tframe'].max()) + 1 if len(df) else 0)
+    positions_per_frame = [[] for _ in range(num_frames)]
+    for _, row in df.iterrows():
+        if not shared_state.TRACKED:
+            position = (row['y'], row['x'], row['displ_y'], row['displ_x'])
+        else:
+            position = (row['y'], row['x'], row['displ_y'], row['displ_x'], row['track_no'])
+        positions_per_frame[int(row['tframe'])].append(position)
+
+    for positions in positions_per_frame:
         shared_state.DATA.append(positions)
 
     # initialize the session.csv file, where tracks are saved
@@ -211,7 +218,7 @@ def load_csv():
         if shared_state.TRACKED:
             csv_data = csv_data[['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']]
         shared_state.csv_folder_to_save = os.path.dirname(csv_path)
-        shared_state.DATA = generate_positions_list(csv_data, shared_state.csv_folder_to_save)  
+        shared_state.DATA = generate_positions_list(csv_data, shared_state.csv_folder_to_save, n_frames=len(images))
         csv_loaded = True
         csv_loaded_event()  # Trigger CSV loaded event
 

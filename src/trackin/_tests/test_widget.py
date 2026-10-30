@@ -46,6 +46,30 @@ def test_check_and_add_displ_cols_preserves_existing_columns():
     assert result["displ_y"].tolist() == [7]
 
 
+def test_generate_positions_list_keeps_empty_frames(tmp_path, monkeypatch):
+    # 5 images; the CSV has no detections in frame 2 and none after frame 3
+    monkeypatch.setattr(shared_state, "DATA", [])
+    monkeypatch.setattr(shared_state, "TRACKED", False)
+    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
+    df = pd.DataFrame(
+        {
+            "tframe": [0, 1, 1, 3],
+            "y": [10, 20, 21, 30],
+            "x": [11, 22, 23, 33],
+            "displ_y": [0, 0, 0, 0],
+            "displ_x": [0, 0, 0, 0],
+        }
+    )
+    data = widget.generate_positions_list(df, str(tmp_path), n_frames=5)
+
+    assert len(data) == 5  # one entry per image
+    assert data[0] == [(10, 11, 0, 0)]
+    assert data[1] == [(20, 22, 0, 0), (21, 23, 0, 0)]
+    assert data[2] == []  # empty frame stays empty instead of shifting
+    assert data[3] == [(30, 33, 0, 0)]
+    assert data[4] == []
+
+
 def test_add_white_border_grayscale():
     image = np.zeros((10, 10), dtype=np.uint8)
     bordered = add_white_border(image, border_size=2)
