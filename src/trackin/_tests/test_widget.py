@@ -627,3 +627,186 @@ def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_pa
     assert shared_state.DATA == [[(1, 2, 0, 0)]]
     assert shared_state.track == [0]
     assert shared_state.SESSION_FILE == OPEN_SESSION_FILE
+
+
+# --- Extra columns of the detections file (e.g. label, area) ---------------
+
+def test_read_detections_csv_keeps_extra_columns_as_they_are(tmp_path):
+    """Only the tracking columns are converted to whole numbers. Extra
+    columns keep their values: before, every column was converted, so a
+    text column (e.g. a label name) made loading crash."""
+    csv_path = tmp_path / "detections.csv"
+    csv_path.write_text("tframe,y,x,label,area\n0,10.7,20,cell_A,350.5\n")
+
+    df = widget.read_detections_csv(str(csv_path))
+
+    assert df["y"].tolist() == [10]  # tracking column: whole number, as before
+    assert df["label"].tolist() == ["cell_A"]  # text kept
+    assert df["area"].tolist() == [350.5]  # decimals kept
+
+
+def test_generate_positions_list_stores_extra_values(tmp_path, monkeypatch):
+    """Each detection's extra values are stored in shared_state.EXTRA, in the
+    same place as its position in DATA. The positions stay whole numbers even
+    though the extra columns hold text and decimals."""
+    monkeypatch.setattr(shared_state, "DATA", [])
+    monkeypatch.setattr(shared_state, "TRACKED", False)
+    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
+    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "area"])
+    df = pd.DataFrame(
+        {
+            "tframe": [0, 2],
+            "y": [10, 30],
+            "x": [20, 40],
+            "displ_y": [0, 0],
+            "displ_x": [0, 0],
+            "label": ["cell_A", "cell_B"],
+            "area": [350.5, 410.0],
+        }
+    )
+
+    data = widget.generate_positions_list(df, str(tmp_path), n_frames=3)
+
+    assert data[0] == [(10, 20, 0, 0)]
+    assert type(data[0][0][0]) is int  # not turned into a decimal or text
+    assert shared_state.EXTRA[0] == [("cell_A", 350.5)]
+    assert shared_state.EXTRA[1] == []  # empty frame
+    assert shared_state.EXTRA[2] == [("cell_B", 410.0)]
+
+
+def test_write_updated_detections_to_file_writes_extra_columns(tmp_path, monkeypatch):
+    """The leftover file has the extra columns after the standard ones. A
+    value containing a comma is put in quotes so it stays one cell, a missing
+    value is left blank, and a deleted detection is still left out."""
+    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
+    monkeypatch.setattr(shared_state, "EXTRA", [[(7, "cell_A"), (8, "x, y")], [(9, float("nan"))]])
+    data = [
+        [(10, 20, 0, 0), (-1000000, -1000000, 0, 0)],  # frame 0: one real, one deleted
+        [(30, 40, 0, 0)],
+    ]
+
+    write_updated_detections_to_file(data, "out.csv", str(tmp_path))
+
+    lines = (tmp_path / "out.csv").read_text().splitlines()
+    assert lines == [
+        "tframe,y,x,displ_y,displ_x,label,note",
+        "0,10,20,0,0,7,cell_A",
+        "1,30,40,0,0,9,",
+    ]
+
+
+def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
+    """Accepting a track writes its detections' extra values into the
+    session file (after track_no), and the remaining detections' extra values
+    into the leftover file. A value containing a comma is put in quotes."""
+    from trackin import utils
+
+    monkeypatch.setattr(shared_state, "TRACKED", False)
+    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0), (50, 50, 0, 0)], [(12, 12, 0, 0)]])
+    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
+    monkeypatch.setattr(shared_state, "EXTRA", [[(7, "cell_A"), (8, "x, y")], [(9, float("nan"))]])
+    monkeypatch.setattr(shared_state, "track", [0, 0])  # first detection of frame 0, then of frame 1
+    monkeypatch.setattr(shared_state, "N_TRACKS", 0)
+    monkeypatch.setattr(shared_state, "MAX_TRACK_ID", None)
+    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
+    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
+    monkeypatch.setattr(shared_state, "UPDATED_DATA_FILE", "leftover.csv")
+    monkeypatch.setattr(
+        shared_state, "G",
+        generate_graph(shared_state.DATA, max_score=1600, score_func="squared", tracked=False),
+    )
+
+    utils.accept_track()
+
+    assert (tmp_path / "session.csv").read_text().splitlines() == [
+        "tframe,y,x,displ_y,displ_x,track_no,label,note",
+        "0,10,10,0,0,1,7,cell_A",
+        "1,12,12,0,0,1,9,",
+    ]
+    assert (tmp_path / "leftover.csv").read_text().splitlines() == [
+        "tframe,y,x,displ_y,displ_x,label,note",
+        '0,50,50,0,0,8,"x, y"',
+    ]
+
+
+def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
+    """A detection added by shift-clicking didn't come from the detections
+    file, so it gets -1 (NO_VALUE) in every extra column, in memory and in
+    the leftover file."""
+    monkeypatch.setattr(shared_state, "TRACKED", False)
+    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0)], [(20, 20, 0, 0)]])
+    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label"])
+    monkeypatch.setattr(shared_state, "EXTRA", [[(7,)], [(8,)]])
+    monkeypatch.setattr(shared_state, "NUM_DET_PER_FRAME", [1, 1])
+    monkeypatch.setattr(shared_state, "track", [0, 0])
+    monkeypatch.setattr(shared_state, "current_index", 0)
+    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
+    monkeypatch.setattr(shared_state, "UPDATED_DATA_FILE", "leftover.csv")
+    monkeypatch.setattr(
+        shared_state, "G",
+        generate_graph(shared_state.DATA, max_score=1600, score_func="squared", tracked=False),
+    )
+    monkeypatch.setattr(widget, "images", [np.zeros((50, 50)), np.zeros((50, 50))])
+    monkeypatch.setattr(widget, "new_point_added", False)
+    # existing labels, so the detection counter just updates them
+    monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
+    monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))
+
+    # stand-ins for the napari points layer and the shift-click
+    layer = SimpleNamespace(
+        data=np.array([[10.0, 10.0]]),
+        size=np.array([20]),
+        border_width_is_relative=True,
+        world_to_data=lambda position: position,
+        refresh=lambda: None,
+    )
+    event = SimpleNamespace(button=1, modifiers=["Shift"], position=(30, 40))
+
+    widget.add_detection(layer, event)
+
+    assert shared_state.EXTRA[0] == [(7,), (-1,)]
+    assert (tmp_path / "leftover.csv").read_text().splitlines() == [
+        "tframe,y,x,displ_y,displ_x,label",
+        "0,10,10,0,0,7",
+        "0,30,40,0,0,-1",
+        "1,20,20,0,0,8",
+    ]
+
+
+def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
+    """Add Track File writes a combined file whose header includes the
+    detections file's extra columns, so tracks accepted later line up with
+    it. Rows from the loaded track file (which has no extra columns) are
+    blank there, and rows from this session keep their values exactly
+    (007 stays 007, it is not turned into the number 7)."""
+    (tmp_path / "session.csv").write_text(
+        "tframe,y,x,displ_y,displ_x,track_no,label,note\n"
+        "0,10,10,0,0,1,007,cell_A\n"
+    )
+    track_file = tmp_path / "previous_tracks.csv"
+    track_file.write_text("tframe,y,x,displ_y,displ_x,track_no\n0,5,5,0,0,3\n")
+
+    monkeypatch.setattr(widget, "images_loaded", True)
+    monkeypatch.setattr(widget, "csv_loaded", True)
+    monkeypatch.setattr(widget, "track_file_label", None)
+    monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
+    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
+    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
+    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
+    monkeypatch.setattr(shared_state, "UPD_TRACK_FILE", "")
+    monkeypatch.setattr(shared_state, "MAX_TRACK_ID", None)
+    messages = _record_critical_messages(monkeypatch)
+    # the file dialog picks the test track file instead of asking the user
+    monkeypatch.setattr(
+        widget.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
+    )
+
+    widget.load_track_file()
+
+    assert messages == []
+    combined = (tmp_path / shared_state.UPD_TRACK_FILE).read_text().splitlines()
+    assert combined == [
+        "tframe,y,x,displ_y,displ_x,track_no,label,note",
+        "0,5,5,0,0,3,,",  # from the loaded track file: no extra values
+        "0,10,10,0,0,4,007,cell_A",  # this session's track, renumbered after 3
+    ]
