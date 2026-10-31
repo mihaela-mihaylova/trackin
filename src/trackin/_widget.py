@@ -137,28 +137,77 @@ def generate_positions_list(df, folder_to_save, n_frames=0):
     shared_state.NUM_DET_PER_FRAME = [len(sublist) for sublist in shared_state.DATA]
     return shared_state.DATA 
 
+IMAGE_EXTENSIONS = ('jpg', 'jpeg', 'png', 'tif', 'tiff', 'bmp', 'gif')
+IMAGE_NAMING_RULE = (
+    "Images must be named 0, 1, 2, ... (e.g. 0.png, 1.png, 2.png), "
+    "one per frame, with no missing frames."
+)
+
 def list_image_files(folder_path):
     """Names of the image files in a folder, in no particular order."""
-    return [f for f in os.listdir(folder_path) if f.lower().endswith(('jpg', 'jpeg', 'png', 'tif', 'tiff', 'bmp', 'gif'))]
+    return [f for f in os.listdir(folder_path) if f.lower().endswith(IMAGE_EXTENSIONS)]
+
+def format_list(items, max_listed=10):
+    """Items as a comma-separated list for an error message. Lists at most
+    `max_listed` of them, then says how many more there are, so a long list
+    doesn't make the dialog unreadable."""
+    items = [str(item) for item in items]
+    if len(items) > max_listed:
+        return ", ".join(items[:max_listed]) + f", and {len(items) - max_listed} more"
+    return ", ".join(items)
 
 def check_image_numbering(file_names):
     """Return an error message if the image files are not named 0, 1, 2, ...
-    N-1 (one image per frame, no gaps, no duplicates), otherwise None.
+    N-1 (one image per frame, no gaps, no duplicates), otherwise None. The
+    message says what is wrong and how to fix it.
 
     Frame n is shown on the n-th image, so this is what makes every frame
     number (tframe) match the image with the same name."""
     if not file_names:
-        return "The folder contains no images."
-    not_numbered = [f for f in file_names if not os.path.splitext(f)[0].isdigit()]
+        return f"No images found in this folder. Supported formats: {', '.join(IMAGE_EXTENSIONS)}."
+
+    not_numbered = sorted(f for f in file_names if not os.path.splitext(f)[0].isdigit())
     if not_numbered:
-        return f"These images are not named with a frame number: {', '.join(sorted(not_numbered)[:10])}."
+        problem = (
+            f"These images are not named with only a frame number: {format_list(not_numbered)}. "
+            "Rename them to just the number"
+        )
+        # suggest the new name for the first one, if its name contains a number
+        name, extension = os.path.splitext(not_numbered[0])
+        digits = "".join(c for c in name if c.isdigit())
+        problem += f", e.g. {not_numbered[0]} → {int(digits)}{extension}." if digits else "."
+        return problem + "\n\n" + IMAGE_NAMING_RULE
+
     numbers = [int(os.path.splitext(f)[0]) for f in file_names]
     duplicates = sorted({n for n in numbers if numbers.count(n) > 1})
     if duplicates:
-        return f"More than one image has frame number: {', '.join(map(str, duplicates[:10]))}."
+        def files_numbered(n):
+            return ", ".join(sorted(f for f in file_names if int(os.path.splitext(f)[0]) == n))
+        if len(duplicates) == 1:
+            problem = f"More than one image has frame number {duplicates[0]}: {files_numbered(duplicates[0])}."
+        else:
+            clashes = [f"{n} ({files_numbered(n)})" for n in duplicates]
+            problem = f"More than one image has the same frame number: {format_list(clashes)}."
+        return problem + " Keep one image per frame number.\n\n" + IMAGE_NAMING_RULE
+
+    first = min(numbers)
+    if first > 0 and sorted(numbers) == list(range(first, first + len(numbers))):
+        # consecutive, but not starting at 0 (e.g. 1, 2, 3, ...)
+        return (
+            f"The images are numbered from {first}, but must start at 0. "
+            "Rename them so the first image is 0 (e.g. 0.png).\n\n" + IMAGE_NAMING_RULE
+        )
+
     missing = sorted(set(range(max(numbers) + 1)) - set(numbers))
     if missing:
-        return f"There is no image for frame: {', '.join(map(str, missing[:10]))}" + (" ..." if len(missing) > 10 else "") + "."
+        if len(missing) == 1:
+            problem = f"There is no image for frame {missing[0]}."
+        else:
+            problem = f"There is no image for {len(missing)} frames: {format_list(missing)}."
+        return (
+            problem + " Add the missing images, or renumber the images so there "
+            "are no gaps.\n\n" + IMAGE_NAMING_RULE
+        )
     return None
 
 def check_detection_frames(df, n_images):
@@ -172,8 +221,7 @@ def check_detection_frames(df, n_images):
         return None
     frames = sorted(df.loc[without_image, 'tframe'].unique())
     return (
-        f"{int(without_image.sum())} detection(s) are in frame(s) "
-        f"{', '.join(map(str, frames[:10]))}" + (" ..." if len(frames) > 10 else "") + ", "
+        f"{int(without_image.sum())} detection(s) are in frame(s) {format_list(frames)}, "
         f"but there are only images for frames 0 to {n_images - 1}.\n\n"
         "Only a detections file in which every detection can be shown on an "
         f"existing image can be loaded: every tframe must be between 0 and {n_images - 1}. "
@@ -182,12 +230,15 @@ def check_detection_frames(df, n_images):
     )
 
 def load_images_from_folder(folder_path):
-    """Load images in numerical order from a given folder."""
+    """Load images in numerical order from a given folder. Also returns the
+    names of the images that could not be opened, so they can be reported
+    together in one message."""
     image_files = sorted(
         list_image_files(folder_path),
         key=lambda x: int(os.path.splitext(x)[0])  # Sort by the numeric value of the filename
     )
     images = []
+    unreadable = []
     for img in image_files:
         try:
             image = imread(os.path.join(folder_path, img))
@@ -196,8 +247,8 @@ def load_images_from_folder(folder_path):
             images.append(image_with_border)
         except Exception as e:
             print(f"Could not open image {img}: {e}")
-            QMessageBox.critical(None, "Image Load Error", f"Could not open image {img}: {e}")
-    return images, image_files
+            unreadable.append(img)
+    return images, image_files, unreadable
 
 def check_and_update_image():
     """Check if both images and CSV data are loaded, then update the image."""
@@ -215,18 +266,16 @@ def choose_folder():
         # breaks the rule leaves the current session untouched
         numbering_error = check_image_numbering(list_image_files(folder_path))
         if numbering_error:
-            QMessageBox.critical(
-                None, "Images Not Loaded",
-                numbering_error + "\n\nImages must be named 0, 1, 2, ... "
-                "(e.g. 0.png, 1.png, 2.png), one per frame, with no missing frames."
-            )
+            QMessageBox.critical(None, "Images Not Loaded", numbering_error)
             return
-        new_images, new_image_files = load_images_from_folder(folder_path)
-        if len(new_images) != len(new_image_files):
+        new_images, new_image_files, unreadable = load_images_from_folder(folder_path)
+        if unreadable:
             QMessageBox.critical(
                 None, "Images Not Loaded",
-                f"{len(new_image_files) - len(new_images)} image(s) could not be read, "
-                "so the frames would no longer match the frame numbers."
+                f"These images could not be opened: {format_list(unreadable)}. "
+                "Check or replace these files.\n\nEvery frame needs an image that "
+                "can be opened, otherwise the images would no longer match the "
+                "frame numbers."
             )
             return
         clear_detections_and_tracks()

@@ -76,27 +76,58 @@ def test_check_image_numbering_accepts_consecutive_names():
 
 
 def test_check_image_numbering_rejects_missing_frame():
+    """One missing image: name the frame and say how to fix it."""
     message = widget.check_image_numbering(["0.png", "1.png", "3.png"])
-    assert "no image for frame: 2" in message
+    assert "There is no image for frame 2." in message
+    assert "Add the missing images, or renumber the images" in message
+    assert widget.IMAGE_NAMING_RULE in message
+
+
+def test_check_image_numbering_rejects_several_missing_frames():
+    """Many missing images: give the total and list only the first 10."""
+    message = widget.check_image_numbering(["0.png", "100.png"])
+    assert "There is no image for 99 frames: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 89 more." in message
 
 
 def test_check_image_numbering_rejects_not_starting_at_zero():
-    message = widget.check_image_numbering(["1.png", "2.png"])
-    assert "no image for frame: 0" in message
+    """A folder numbered 1, 2, 3, ... is told it must start at 0, rather
+    than that frame 0 is missing."""
+    message = widget.check_image_numbering(["1.png", "2.png", "3.png"])
+    assert "The images are numbered from 1, but must start at 0." in message
+    assert "no image for frame" not in message
 
 
 def test_check_image_numbering_rejects_duplicates():
+    """Name the files that share a frame number."""
     message = widget.check_image_numbering(["0.png", "1.png", "01.png"])
-    assert "More than one image has frame number: 1" in message
+    assert "More than one image has frame number 1: 01.png, 1.png." in message
+    assert "Keep one image per frame number." in message
+
+
+def test_check_image_numbering_rejects_several_duplicates():
+    message = widget.check_image_numbering(["0.png", "1.png", "01.png", "2.png", "02.png"])
+    assert "same frame number: 1 (01.png, 1.png), 2 (02.png, 2.png)." in message
 
 
 def test_check_image_numbering_rejects_names_without_number():
+    """Name the files and suggest the new name for the first one."""
     message = widget.check_image_numbering(["0.png", "frame_1.png"])
-    assert "frame_1.png" in message
+    assert "not named with only a frame number: frame_1.png." in message
+    assert "e.g. frame_1.png → 1.png." in message
 
 
 def test_check_image_numbering_rejects_empty_folder():
-    assert widget.check_image_numbering([]) is not None
+    """An empty folder (or one with only other files) lists the supported
+    formats instead of the naming rule."""
+    message = widget.check_image_numbering([])
+    assert "No images found in this folder." in message
+    assert "png" in message
+    assert widget.IMAGE_NAMING_RULE not in message
+
+
+def test_format_list_shortens_long_lists():
+    assert widget.format_list([1, 2, 3]) == "1, 2, 3"
+    assert widget.format_list(range(12)) == "0, 1, 2, 3, 4, 5, 6, 7, 8, 9, and 2 more"
 
 
 def test_check_detection_frames_rejects_frames_after_last_image():
@@ -542,7 +573,7 @@ def test_choose_folder_refuses_missing_image_and_keeps_open_dataset(tmp_path, mo
     assert len(messages) == 1
     title, text = messages[0]
     assert title == "Images Not Loaded"
-    assert "There is no image for frame: 2" in text
+    assert "There is no image for frame 2." in text
     _assert_open_dataset_untouched()
 
 
@@ -562,10 +593,11 @@ def test_choose_folder_refuses_unreadable_image_and_keeps_open_dataset(tmp_path,
 
     widget.choose_folder()
 
-    # the last message is the refusal (the one before it names the unreadable file)
-    title, text = messages[-1]
+    # one message for all unreadable images, naming them
+    assert len(messages) == 1
+    title, text = messages[0]
     assert title == "Images Not Loaded"
-    assert "1 image(s) could not be read" in text
+    assert "These images could not be opened: 1.png." in text
     _assert_open_dataset_untouched()
 
 
