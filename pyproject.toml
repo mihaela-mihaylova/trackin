@@ -30,6 +30,8 @@ dependencies = [
     "magicgui",
     "qtpy",
     "scikit-image",
+    "networkx",
+    "pandas",
 ]
 
 [project.optional-dependencies]
