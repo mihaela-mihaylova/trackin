@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import pytest
 
 import numpy as np
 import pandas as pd
@@ -925,3 +926,40 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
     assert (tmp_path / "session.csv").read_text().splitlines()[0] == (
         "tframe,y,x,displ_y,displ_x,track_no,label,note"
     )
+
+
+def test_load_csv_shows_error_for_unreadable_file_and_keeps_open_dataset(tmp_path, monkeypatch):
+    """Load Detections on a CSV that can't be read -- here line 3 has 4
+    values but the header only 3 columns, as happens with a decimal comma
+    (2,5 instead of 2.5) -- must show the "Detections Not Loaded" error with
+    the reason, and leave the dataset that was already open as it was.
+    Before, the error only appeared in the terminal and nothing in the app."""
+    csv_path = tmp_path / "detections.csv"
+    csv_path.write_text("tframe,y,x\n0,10,10\n0,2,5,20\n")
+    _seed_open_dataset(monkeypatch)
+    messages = _record_critical_messages(monkeypatch)
+    # the file dialog picks the test CSV instead of asking the user
+    monkeypatch.setattr(
+        widget.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
+    )
+
+    widget.load_csv()
+
+    assert len(messages) == 1
+    title, text = messages[0]
+    assert title == "Detections Not Loaded"
+    assert text.startswith("The detections file could not be read:")
+    assert "Expected 3 fields in line 3, saw 4" in text
+    _assert_open_dataset_untouched()
+
+
+def test_read_detections_csv_refuses_extra_value_on_first_line(tmp_path):
+    """When only the first line after the header has one value too many,
+    pandas gives no error but shifts all columns one place to the left (the
+    y values end up in tframe), so the detections would be read wrongly.
+    This must raise an error instead, which Load Detections shows."""
+    csv_path = tmp_path / "detections.csv"
+    csv_path.write_text("tframe,y,x\n0,10,2,5\n1,20,20\n")
+
+    with pytest.raises(ValueError, match="Line 2 has more values than the header has columns"):
+        widget.read_detections_csv(str(csv_path))

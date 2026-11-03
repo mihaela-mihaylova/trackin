@@ -112,6 +112,12 @@ def read_detections_csv(csv_path):
     numbers, as before; extra columns keep their values as they are (text,
     decimals, ...), so they come out the same in the output files."""
     df = pd.read_csv(csv_path)
+    # When the first line after the header has one value more than the
+    # header has columns, pandas doesn't give an error, but takes the first
+    # column as row numbers and shifts all columns one place to the left
+    # (e.g. the y values end up in tframe). A RangeIndex means it didn't.
+    if not isinstance(df.index, pd.RangeIndex):
+        raise ValueError("Line 2 has more values than the header has columns.")
     return df.astype({c: int for c in TRACKING_COLUMNS if c in df.columns})
 
  # adds these displacement columns with value 0, in case they are not present
@@ -332,7 +338,13 @@ def load_csv():
         show_info("Detections are being loaded...")
         # Check the detections before clearing anything, so a file that
         # breaks the rule leaves the current session untouched
-        new_csv_data = read_detections_csv(csv_path)
+        try:
+            new_csv_data = read_detections_csv(csv_path)
+        except (ValueError, OSError) as e:
+            # e.g. a line with more values than the header has columns, or
+            # a value that isn't a number in a tracking column
+            QMessageBox.critical(None, "Detections Not Loaded", f"The detections file could not be read:\n\n{e}")
+            return
         frames_error = check_detection_frames(new_csv_data, len(images))
         if frames_error:
             QMessageBox.critical(None, "Detections Not Loaded", frames_error)
