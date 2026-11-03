@@ -776,8 +776,8 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
 def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
     """Add Track File writes a combined file whose header includes the
     detections file's extra columns, so tracks accepted later line up with
-    it. Rows from the loaded track file (which has no extra columns) are
-    blank there, and rows from this session keep their values exactly
+    it. Rows from the loaded track file (which has no extra columns) get -1
+    (NO_VALUE) there, and rows from this session keep their values exactly
     (007 stays 007, it is not turned into the number 7)."""
     (tmp_path / "session.csv").write_text(
         "tframe,y,x,displ_y,displ_x,track_no,label,note\n"
@@ -807,6 +807,121 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
     combined = (tmp_path / shared_state.UPD_TRACK_FILE).read_text().splitlines()
     assert combined == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
-        "0,5,5,0,0,3,,",  # from the loaded track file: no extra values
+        "0,5,5,0,0,3,-1,-1",  # from the loaded track file: no extra values
         "0,10,10,0,0,4,007,cell_A",  # this session's track, renumbered after 3
     ]
+
+
+def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path, monkeypatch):
+    """A track file may have extra columns after the standard ones, e.g. a
+    session file from an earlier sitting. The combined file gets the extra
+    columns of both files, each once and the track file's first. Where a
+    file doesn't have a column, its rows get -1 there: the track file has no
+    "note", this session has no "quality"."""
+    (tmp_path / "session.csv").write_text(
+        "tframe,y,x,displ_y,displ_x,track_no,label,note\n"
+        "0,10,10,0,0,1,7,cell_A\n"
+    )
+    track_file = tmp_path / "previous_tracks.csv"
+    track_file.write_text(
+        "tframe,y,x,displ_y,displ_x,track_no,label,quality\n"
+        "0,5,5,0,0,3,4,good\n"
+    )
+
+    monkeypatch.setattr(widget, "images_loaded", True)
+    monkeypatch.setattr(widget, "csv_loaded", True)
+    monkeypatch.setattr(widget, "track_file_label", None)
+    monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
+    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
+    monkeypatch.setattr(shared_state, "COMBINED_EXTRA_COLUMNS", [])
+    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
+    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
+    monkeypatch.setattr(shared_state, "UPD_TRACK_FILE", "")
+    monkeypatch.setattr(shared_state, "MAX_TRACK_ID", None)
+    messages = _record_critical_messages(monkeypatch)
+    # the file dialog picks the test track file instead of asking the user
+    monkeypatch.setattr(
+        widget.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
+    )
+
+    widget.load_track_file()
+
+    assert messages == []
+    assert shared_state.COMBINED_EXTRA_COLUMNS == ["label", "quality", "note"]
+    combined = (tmp_path / shared_state.UPD_TRACK_FILE).read_text().splitlines()
+    assert combined == [
+        "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
+        "0,5,5,0,0,3,4,good,-1",  # from the track file: no "note"
+        "0,10,10,0,0,4,7,-1,cell_A",  # from this session: no "quality"
+    ]
+
+
+def test_load_track_file_refuses_file_not_starting_with_standard_columns(tmp_path, monkeypatch):
+    """A track file that doesn't start with the standard columns, in order,
+    is refused with a message saying what it should start with. The combined
+    file that was in use (name and track numbering) stays as it was, so
+    tracks accepted later still go to the right file."""
+    track_file = tmp_path / "not_a_track_file.csv"
+    track_file.write_text("label,tframe,y,x\n7,0,5,5\n")
+
+    monkeypatch.setattr(widget, "images_loaded", True)
+    monkeypatch.setattr(widget, "csv_loaded", True)
+    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
+    monkeypatch.setattr(shared_state, "UPD_TRACK_FILE", "with_new_tracks_added_in_use.csv")
+    monkeypatch.setattr(shared_state, "MAX_TRACK_ID", 3)
+    messages = _record_critical_messages(monkeypatch)
+    # the file dialog picks the test file instead of asking the user
+    monkeypatch.setattr(
+        widget.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
+    )
+
+    widget.load_track_file()
+
+    assert len(messages) == 1
+    title, text = messages[0]
+    assert title == "Track File Not Loaded"
+    assert "must start with these columns, in this order: tframe, y, x, displ_y, displ_x, track_no" in text
+    assert "It starts with: label, tframe, y, x." in text
+    assert shared_state.UPD_TRACK_FILE == "with_new_tracks_added_in_use.csv"
+    assert shared_state.MAX_TRACK_ID == 3
+
+
+def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeypatch):
+    """After Add Track File, an accepted track is appended to the combined
+    file in that file's column order. Here the combined file has a column
+    ("quality") that only the loaded track file had, so the new rows get -1
+    there; the session file keeps only the detections file's columns."""
+    from trackin import utils
+
+    (tmp_path / "combined.csv").write_text(
+        "tframe,y,x,displ_y,displ_x,track_no,label,quality,note\n"
+        "0,5,5,0,0,3,4,good,-1\n"
+    )
+    monkeypatch.setattr(shared_state, "TRACKED", False)
+    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0)], [(12, 12, 0, 0)]])
+    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
+    monkeypatch.setattr(shared_state, "EXTRA", [[(7, "cell_A")], [(8, "cell_A")]])
+    monkeypatch.setattr(shared_state, "COMBINED_EXTRA_COLUMNS", ["label", "quality", "note"])
+    monkeypatch.setattr(shared_state, "track", [0, 0])
+    monkeypatch.setattr(shared_state, "N_TRACKS", 0)
+    monkeypatch.setattr(shared_state, "MAX_TRACK_ID", 3)
+    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
+    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
+    monkeypatch.setattr(shared_state, "UPDATED_DATA_FILE", "leftover.csv")
+    monkeypatch.setattr(shared_state, "UPD_TRACK_FILE", "combined.csv")
+    monkeypatch.setattr(
+        shared_state, "G",
+        generate_graph(shared_state.DATA, max_score=1600, score_func="squared", tracked=False),
+    )
+
+    utils.accept_track()
+
+    assert (tmp_path / "combined.csv").read_text().splitlines() == [
+        "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
+        "0,5,5,0,0,3,4,good,-1",
+        "0,10,10,0,0,4,7,-1,cell_A",  # track 4 = 3 + this session's track 1
+        "1,12,12,0,0,4,8,-1,cell_A",
+    ]
+    assert (tmp_path / "session.csv").read_text().splitlines()[0] == (
+        "tframe,y,x,displ_y,displ_x,track_no,label,note"
+    )

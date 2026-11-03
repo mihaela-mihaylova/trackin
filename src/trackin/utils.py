@@ -52,7 +52,7 @@ def accept_track():
             updated_track_id = shared_state.MAX_TRACK_ID + shared_state.N_TRACKS
             for i, p in enumerate(track):
                 if p >= 0:
-                    f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]},{shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{updated_track_id}{shared_state.extra_values(i, p)}\n")
+                    f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]},{shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{updated_track_id}{shared_state.combined_extra_values(i, p)}\n")
 
     with open(session_file_path, "a") as f:
         if add_header:

@@ -407,24 +407,40 @@ def load_track_file():
     if csv_path:
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # name for file where leftover positions are preserved
-        shared_state.UPD_TRACK_FILE = generate_upd_track_filename(csv_path, timestamp)
+        # name for the file with both the loaded and the new tracks; only
+        # used once the track file is accepted, so a refused file doesn't
+        # redirect tracks accepted later into a file that was never written
+        upd_track_file = generate_upd_track_filename(csv_path, timestamp)
 
         try:
-            track_df = pd.read_csv(csv_path).astype(int)
-            expected_columns = ['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']
-            
-            # Check if the columns match the expected format
-            if list(track_df.columns) != expected_columns:
-                # Display error message if columns are incorrect
-                QMessageBox.critical(None, "CSV Format Error", f"CSV file must have the following columns in order: {expected_columns}")
+            # Check the columns first: the file must start with the standard
+            # track columns, in order; any further columns are extra columns
+            header = list(pd.read_csv(csv_path, nrows=0).columns)
+            if header[:len(TRACKING_COLUMNS)] != TRACKING_COLUMNS:
+                QMessageBox.critical(
+                    None, "Track File Not Loaded",
+                    "The track file must start with these columns, in this order: "
+                    f"{', '.join(TRACKING_COLUMNS)}.\n"
+                    f"It starts with: {', '.join(header[:len(TRACKING_COLUMNS)])}.\n\n"
+                    "Any further columns (e.g. label, area) are allowed and kept."
+                )
                 return
-            
+            track_extra_columns = header[len(TRACKING_COLUMNS):]
+
+            # Extra columns are read as text, exactly as written, so their
+            # values are copied unchanged into the combined file
+            track_df = pd.read_csv(
+                csv_path,
+                dtype={c: str for c in track_extra_columns},
+                keep_default_na=False,
+            )
+
             # Check if the file is empty or only has a header
-            if track_df.empty or (len(track_df) == 0 and not track_df.columns.empty):
+            if track_df.empty:
                 QMessageBox.critical(None, "File Is Empty", "The loaded file is empty or only contains a header.")
                 return
-            
+            track_df = track_df.astype({c: int for c in TRACKING_COLUMNS})
+
             # Load the current session tracks, if any
             # note that first part of the checked_session_file conditions is always met, added here because otherwise an error is thrown
             complete_path_to_session_file = os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)
@@ -433,15 +449,17 @@ def load_track_file():
             print(f'size is 0: {os.path.getsize(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)) == 0}')
             print(f'check_session_file:{check_session_file}')
 
-            # The combined file gets the detections file's extra columns too, so
-            # tracks accepted later (which carry them) line up with its header.
-            # The loaded track file's own rows have no values there (blank).
-            combined_columns = TRACKING_COLUMNS + shared_state.EXTRA_COLUMNS
+            # The combined file gets the extra columns of both the track file
+            # and the detections file (each once, track file's first), so tracks
+            # accepted later line up with its header. Rows from a file that
+            # doesn't have a column get NO_VALUE (-1) there.
+            combined_extra_columns = list(dict.fromkeys(track_extra_columns + shared_state.EXTRA_COLUMNS))
+            combined_columns = TRACKING_COLUMNS + combined_extra_columns
+            upd_track_file_path = os.path.join(shared_state.csv_folder_to_save, upd_track_file)
 
             if check_session_file:
                 # If session_df is empty, save track_df directly with the updated file name
-                updated_track_df_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE)
-                track_df.reindex(columns=combined_columns).to_csv(updated_track_df_path, index=False)
+                track_df.reindex(columns=combined_columns, fill_value=NO_VALUE).to_csv(upd_track_file_path, index=False)
                 max_track_no = track_df['track_no'].max()
                 show_info("Track File Added. \n The track file has been successfully added. New tracks will be added to the existing tracks.")
                 
@@ -462,12 +480,20 @@ def load_track_file():
                 print(session_df)
                 
                 # Concatenate the DataFrames
-                updated_tracks_df = pd.concat([track_df, session_df], ignore_index=True).reindex(columns=combined_columns)
-                
+                updated_tracks_df = pd.concat(
+                    [
+                        track_df.reindex(columns=combined_columns, fill_value=NO_VALUE),
+                        session_df.reindex(columns=combined_columns, fill_value=NO_VALUE),
+                    ],
+                    ignore_index=True,
+                )
+
                 # Save the combined tracks to the new track file
-                updated_tracks_df.to_csv(os.path.join(shared_state.csv_folder_to_save, f"{shared_state.UPD_TRACK_FILE}"), index=False)
+                updated_tracks_df.to_csv(upd_track_file_path, index=False)
                 show_info("Track File Updated. \n The track file has been successfully updated with the new tracks.")
-    
+
+            shared_state.UPD_TRACK_FILE = upd_track_file
+            shared_state.COMBINED_EXTRA_COLUMNS = combined_extra_columns
             shared_state.MAX_TRACK_ID = max_track_no
 
             if track_file_label is not None:
@@ -487,8 +513,9 @@ def load_track_file():
 load_track_file.call_button.native.setToolTip(
     "Select a CSV of tracks accepted in a previous session, so new tracks\n"
     "continue numbering from where that session left off.\n"
-    "Must have exactly these columns, in this order:\n"
-    "tframe, y, x, displ_y, displ_x, track_no."
+    "Must start with these columns, in this order:\n"
+    "tframe, y, x, displ_y, displ_x, track_no.\n"
+    "Any further columns (e.g. label, area) are kept."
 )
 
 # go to following image
@@ -1316,6 +1343,7 @@ def clear_detections_and_tracks():
     shared_state.DATA = []  # Explicitly set to an empty list rather than None
     shared_state.EXTRA = []
     shared_state.EXTRA_COLUMNS = []
+    shared_state.COMBINED_EXTRA_COLUMNS = []
     shared_state.track = []
     shared_state.track_lines = None
     shared_state.NUM_DET_PER_FRAME = []

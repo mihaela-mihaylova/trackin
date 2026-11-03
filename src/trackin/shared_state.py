@@ -35,6 +35,9 @@ class SharedState:
         # values of those columns for each detection, indexed like DATA:
         # EXTRA[t][i] belongs to DATA[t][i]
         self.EXTRA = []
+        # extra columns of the combined track file written by Add Track File:
+        # those of the loaded track file and of the detections file
+        self.COMBINED_EXTRA_COLUMNS = []
 
     def extra_header(self):
         """The extra columns' names for a CSV header row, each preceded by a
@@ -47,6 +50,13 @@ class SharedState:
         if not self.EXTRA_COLUMNS:
             return ""
         return "".join("," + csv_value(v) for v in self.EXTRA[t][i])
+
+    def combined_extra_values(self, t, i):
+        """Like extra_values, but in the order of the combined track file's
+        extra columns. A column only the loaded track file has gets NO_VALUE,
+        as this detection has no value there."""
+        values = dict(zip(self.EXTRA_COLUMNS, self.EXTRA[t][i])) if self.EXTRA_COLUMNS else {}
+        return "".join("," + csv_value(values.get(c, NO_VALUE)) for c in self.COMBINED_EXTRA_COLUMNS)
 
 def csv_value(value):
     """A value as written in a CSV cell: empty for a missing value, and in
