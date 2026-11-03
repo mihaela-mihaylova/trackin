@@ -963,3 +963,31 @@ def test_read_detections_csv_refuses_extra_value_on_first_line(tmp_path):
 
     with pytest.raises(ValueError, match="Line 2 has more values than the header has columns"):
         widget.read_detections_csv(str(csv_path))
+
+
+def test_read_detections_csv_refuses_file_without_required_columns(tmp_path):
+    """A detections file must have the columns tframe, y and x. Without one
+    of them, the error names the missing column and the columns the file
+    has. Before, loading failed later with an error only in the terminal."""
+    csv_path = tmp_path / "detections.csv"
+    csv_path.write_text("frame,y,x\n0,10,10\n")
+
+    with pytest.raises(ValueError) as error:
+        widget.read_detections_csv(str(csv_path))
+
+    assert "must have the columns tframe, y and x, but it has no tframe" in str(error.value)
+    assert "Its columns are: frame, y, x." in str(error.value)
+
+
+def test_read_detections_csv_refuses_file_separated_by_semicolons(tmp_path):
+    """A file separated by semicolons is read as one single column, so it
+    is refused by the same check. The column name in the message shows the
+    semicolons."""
+    csv_path = tmp_path / "detections.csv"
+    csv_path.write_text("tframe;y;x\n0;10;10\n")
+
+    with pytest.raises(ValueError) as error:
+        widget.read_detections_csv(str(csv_path))
+
+    assert "but it has no tframe, y, x" in str(error.value)
+    assert "Its columns are: tframe;y;x." in str(error.value)

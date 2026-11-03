@@ -118,6 +118,14 @@ def read_detections_csv(csv_path):
     # (e.g. the y values end up in tframe). A RangeIndex means it didn't.
     if not isinstance(df.index, pd.RangeIndex):
         raise ValueError("Line 2 has more values than the header has columns.")
+    # A file separated by semicolons is read as one column (e.g. "tframe;y;x"),
+    # so it fails this check too, and its columns show why
+    missing = [c for c in ['tframe', 'y', 'x'] if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"The file must have the columns tframe, y and x, but it has no {', '.join(missing)}.\n"
+            f"Its columns are: {', '.join(str(c) for c in df.columns)}."
+        )
     return df.astype({c: int for c in TRACKING_COLUMNS if c in df.columns})
 
  # adds these displacement columns with value 0, in case they are not present
