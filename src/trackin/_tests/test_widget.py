@@ -3,6 +3,7 @@ import pytest
 
 import numpy as np
 import pandas as pd
+from napari.components import ViewerModel
 from skimage.io import imsave
 
 import trackin._widget as widget
@@ -481,12 +482,16 @@ def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
             setattr(shared_state, field, value)
 
 
-def test_update_image_clears_points_on_frame_without_detections(make_napari_viewer, monkeypatch):
+def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     """Moving from a frame with detections to a frame without any must
     clear the points from the screen. Before, nothing was redrawn for an
     empty frame, so the previous frame's points (and the yellow track
-    marker) stayed visible on it."""
-    viewer = make_napari_viewer()
+    marker) stayed visible on it.
+
+    Uses napari's viewer without a window (ViewerModel), which has the same
+    layers but draws nothing, so the test also runs on machines without
+    graphics support."""
+    viewer = ViewerModel()
     monkeypatch.setattr(widget, "viewer", viewer)
     monkeypatch.setattr(widget, "images", [np.zeros((20, 20)), np.zeros((20, 20))])
     monkeypatch.setattr(widget, "image_files", ["0.png", "1.png"])
