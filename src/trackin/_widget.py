@@ -10,7 +10,7 @@ from napari.utils.events import EventEmitter
 from .shared_state import shared_state, NO_VALUE
 from datetime import datetime
 from pathlib import PurePosixPath
-from .tracking import add_node_with_dummy_edges
+from .core.tracking import add_node_with_dummy_edges
 from napari.utils.notifications import show_info
 
 viewer = None

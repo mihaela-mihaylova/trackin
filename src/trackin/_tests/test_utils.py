@@ -1,7 +1,7 @@
 import pytest
 
 from trackin.shared_state import shared_state
-from trackin.tracking import generate_graph
+from trackin.core.tracking import generate_graph
 from trackin.utils import accept_track, delete_all_connections, delete_segment, save_segment
 
 SHARED_STATE_FIELDS = [

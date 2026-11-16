@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from .tracking import generate_graph, generate_track, generate_tracks, remove_all_successors
+from .core.tracking import generate_graph, generate_track, generate_tracks, remove_all_successors
 from ._widget import csv_loaded_event, remove_track_node_event, accept_track_event, delete_segment_event, save_segment_event, delete_all_connections_event
 from .shared_state import shared_state
 from napari.utils.notifications import show_info

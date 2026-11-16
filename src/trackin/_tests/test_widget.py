@@ -13,7 +13,7 @@ from trackin._widget import (
     write_updated_detections_to_file,
 )
 from trackin.shared_state import shared_state
-from trackin.tracking import generate_graph
+from trackin.core.tracking import generate_graph
 
 SHARED_STATE_FIELDS = [
     "DATA",
