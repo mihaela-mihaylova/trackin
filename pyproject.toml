@@ -25,7 +25,7 @@ classifiers = [
 ]
 requires-python = ">=3.9"
 dependencies = [
-    "napari[pyqt5]>=0.5.0",
+    "napari[pyqt]>=0.5.0",
     "numpy",
     "magicgui",
     "qtpy",
@@ -40,7 +40,6 @@ testing = [
     "pytest",  # https://docs.pytest.org/en/latest/contents.html
     "pytest-cov",  # https://pytest-cov.readthedocs.io/en/latest/
     "pytest-qt",  # https://pytest-qt.readthedocs.io/en/latest/
-    "pyqt5",
 ]
 
 [project.entry-points."napari.manifest"]
