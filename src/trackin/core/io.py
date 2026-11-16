@@ -2,6 +2,7 @@
 # folders. Used by the plugin's interface, which shows the messages these
 # checks return.
 
+import csv
 import os
 from pathlib import PurePosixPath
 
@@ -15,13 +16,17 @@ def read_detections_csv(csv_path):
     """Read a detections file. The tracking columns are converted to whole
     numbers, as before; extra columns keep their values as they are (text,
     decimals, ...), so they come out the same in the output files."""
-    df = pd.read_csv(csv_path)
     # When the first line after the header has one value more than the
-    # header has columns, pandas doesn't give an error, but takes the first
-    # column as row numbers and shifts all columns one place to the left
-    # (e.g. the y values end up in tframe). A RangeIndex means it didn't.
-    if not isinstance(df.index, pd.RangeIndex):
+    # header has columns, pandas doesn't give an error, but shifts all
+    # columns one place to the left (e.g. the y values end up in tframe).
+    # So the values of that line are counted before pandas reads the file.
+    with open(csv_path, newline='', encoding='utf-8', errors='replace') as f:
+        lines = csv.reader(f)
+        header = next(lines, [])
+        first_line = next(lines, [])
+    if len(first_line) > len(header):
         raise ValueError("Line 2 has more values than the header has columns.")
+    df = pd.read_csv(csv_path)
     # A file separated by semicolons is read as one column (e.g. "tframe;y;x"),
     # so it fails this check too, and its columns show why
     missing = [c for c in ['tframe', 'y', 'x'] if c not in df.columns]
