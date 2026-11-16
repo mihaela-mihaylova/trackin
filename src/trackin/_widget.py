@@ -7,10 +7,14 @@ from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
 from napari.utils.events import EventEmitter
-from .shared_state import shared_state
+from .shared_state import shared_state, NO_VALUE
 from datetime import datetime
-from pathlib import PurePosixPath
-from .tracking import add_node_with_dummy_edges
+from .core.tracking import add_node_with_dummy_edges
+from .core.io import (
+    TRACKING_COLUMNS, IMAGE_NAMING_RULE, read_detections_csv, check_and_add_displ_cols,
+    list_image_files, format_list, check_image_numbering, check_detection_frames,
+    generate_upd_track_filename,
+)
 from napari.utils.notifications import show_info
 
 viewer = None
@@ -103,26 +107,32 @@ def initialize_viewer(napari_viewer):
     left_timer.timeout.connect(previous_image)
 
 
- # adds these displacement columns with value 0, in case they are not present
-def check_and_add_displ_cols(df):
-    """Add displ_x and add displ_y if these are not present in loaded df"""
-    if 'displ_x' not in df.columns:
-        df['displ_x'] = 0
-    if 'displ_y' not in df.columns:
-        df['displ_y'] = 0
-    return df
+def generate_positions_list(df, folder_to_save, n_frames=0):
+    """Load positions data into a list of lists, required by our tracking algorithm.
 
-def generate_positions_list(df, folder_to_save):
-    """Load positions data into a list of lists, required by our tracking algorithm"""
-    for _, dft in df.groupby('tframe'):
-        positions = []
-        for _, row in dft.iterrows():
-            if not shared_state.TRACKED:
-                positions.append((row['y'], row['x'], row['displ_y'], row['displ_x']))
-            else:
-                positions.append((row['y'], row['x'], row['displ_y'], row['displ_x'], row['track_no']))
+    Frames are indexed by their frame number (tframe), so a frame without
+    detections stays an empty list instead of shifting all later frames onto
+    the wrong images. The list covers at least n_frames frames (the number of
+    loaded images), so frames after the last detection exist too.
 
+    The values of the extra columns (shared_state.EXTRA_COLUMNS) are stored
+    in shared_state.EXTRA, in the same places as the positions in DATA."""
+    num_frames = max(n_frames, int(df['tframe'].max()) + 1 if len(df) else 0)
+    positions_per_frame = [[] for _ in range(num_frames)]
+    extras_per_frame = [[] for _ in range(num_frames)]
+    # Read column by column rather than row by row, so each column keeps its
+    # own type: a row mixes whole numbers with e.g. text or decimals in the
+    # extra columns, and would otherwise turn all of them into one type
+    columns = ['y', 'x', 'displ_y', 'displ_x'] + (['track_no'] if shared_state.TRACKED else [])
+    positions = zip(*(df[c].tolist() for c in columns))
+    extras = zip(*(df[c].tolist() for c in shared_state.EXTRA_COLUMNS)) if shared_state.EXTRA_COLUMNS else ([()] * len(df))
+    for t, position, extra in zip(df['tframe'].tolist(), positions, extras):
+        positions_per_frame[int(t)].append(tuple(position))
+        extras_per_frame[int(t)].append(tuple(extra))
+
+    for positions in positions_per_frame:
         shared_state.DATA.append(positions)
+    shared_state.EXTRA = extras_per_frame
 
     # initialize the session.csv file, where tracks are saved
     with open(os.path.join(folder_to_save, f"{shared_state.SESSION_FILE}"), "w") as f:
@@ -131,13 +141,15 @@ def generate_positions_list(df, folder_to_save):
     return shared_state.DATA 
 
 def load_images_from_folder(folder_path):
-    """Load images in numerical order from a given folder."""
-    global images, image_files
+    """Load images in numerical order from a given folder. Also returns the
+    names of the images that could not be opened, so they can be reported
+    together in one message."""
     image_files = sorted(
-        [f for f in os.listdir(folder_path) if f.lower().endswith(('jpg', 'jpeg', 'png', 'tif', 'tiff', 'bmp', 'gif'))],
+        list_image_files(folder_path),
         key=lambda x: int(os.path.splitext(x)[0])  # Sort by the numeric value of the filename
     )
     images = []
+    unreadable = []
     for img in image_files:
         try:
             image = imread(os.path.join(folder_path, img))
@@ -146,8 +158,8 @@ def load_images_from_folder(folder_path):
             images.append(image_with_border)
         except Exception as e:
             print(f"Could not open image {img}: {e}")
-            QMessageBox.critical(None, "Image Load Error", f"Could not open image {img}: {e}")
-    return images, image_files
+            unreadable.append(img)
+    return images, image_files, unreadable
 
 def check_and_update_image():
     """Check if both images and CSV data are loaded, then update the image."""
@@ -161,8 +173,24 @@ def choose_folder():
     global images, image_files, viewer, images_loaded, MIN_ZOOM, MAX_ZOOM
     folder_path = QFileDialog.getExistingDirectory(None, "Select Folder with Images")
     if folder_path:
+        # Check the image names before loading anything, so a folder that
+        # breaks the rule leaves the current session untouched
+        numbering_error = check_image_numbering(list_image_files(folder_path))
+        if numbering_error:
+            QMessageBox.critical(None, "Images Not Loaded", numbering_error)
+            return
+        new_images, new_image_files, unreadable = load_images_from_folder(folder_path)
+        if unreadable:
+            QMessageBox.critical(
+                None, "Images Not Loaded",
+                f"These images could not be opened: {format_list(unreadable)}. "
+                "Check or replace these files.\n\nEvery frame needs an image that "
+                "can be opened, otherwise the images would no longer match the "
+                "frame numbers."
+            )
+            return
         clear_detections_and_tracks()
-        images, image_files = load_images_from_folder(folder_path)
+        images, image_files = new_images, new_image_files
         shared_state.current_index = 0
         images_loaded = True
         if images:
@@ -194,9 +222,22 @@ def load_csv():
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
         show_info("Detections are being loaded...")
+        # Check the detections before clearing anything, so a file that
+        # breaks the rule leaves the current session untouched
+        try:
+            new_csv_data = read_detections_csv(csv_path)
+        except (ValueError, OSError) as e:
+            # e.g. a line with more values than the header has columns, or
+            # a value that isn't a number in a tracking column
+            QMessageBox.critical(None, "Detections Not Loaded", f"The detections file could not be read:\n\n{e}")
+            return
+        frames_error = check_detection_frames(new_csv_data, len(images))
+        if frames_error:
+            QMessageBox.critical(None, "Detections Not Loaded", frames_error)
+            return
         if csv_loaded:
             clear_detections_and_tracks()
-                
+
         csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -205,13 +246,11 @@ def load_csv():
         # name for file where leftover positions are preserved
         shared_state.UPDATED_DATA_FILE = f'upd_{csv_filename}_{timestamp}.csv'
 
-        csv_data = pd.read_csv(csv_path).astype(int)
-        csv_data = check_and_add_displ_cols(csv_data)
+        csv_data = check_and_add_displ_cols(new_csv_data)
         shared_state.TRACKED = 'track_no' in csv_data.columns
-        if shared_state.TRACKED:
-            csv_data = csv_data[['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']]
+        shared_state.EXTRA_COLUMNS = [c for c in csv_data.columns if c not in TRACKING_COLUMNS]
         shared_state.csv_folder_to_save = os.path.dirname(csv_path)
-        shared_state.DATA = generate_positions_list(csv_data, shared_state.csv_folder_to_save)  
+        shared_state.DATA = generate_positions_list(csv_data, shared_state.csv_folder_to_save, n_frames=len(images))
         csv_loaded = True
         csv_loaded_event()  # Trigger CSV loaded event
 
@@ -239,17 +278,10 @@ load_csv.call_button.native.setToolTip(
     "Select a CSV of detections for the loaded image frames.\n"
     "Required columns: tframe, y, x.\n"
     "Optional columns: displ_y, displ_x (default to 0 if omitted),\n"
-    "and track_no (include it if these detections are already tracked)."
+    "and track_no (include it if these detections are already tracked).\n"
+    "Any other columns (e.g. label, area) are kept and written to the\n"
+    "output files; detections added by hand get -1 in them."
 )
-
-def generate_upd_track_filename(csv_path, timestamp):
-    """Build the filename for a track file that continues a previous
-    session's track numbering, from the selected CSV's path and a
-    timestamp. Handles both / and \\ path separators, and keeps
-    everything before the last dot (so "my.tracks.v2.csv" becomes
-    "my.tracks.v2", not "my")."""
-    csv_filename = PurePosixPath(csv_path.replace('\\', '/')).stem
-    return f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
 
 # loads a file with already accepted tracks and adds these and any subsequent accepted tracks to a new track file
 @magicgui(call_button="Add Track File", auto_call=True)
@@ -264,24 +296,40 @@ def load_track_file():
     if csv_path:
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # name for file where leftover positions are preserved
-        shared_state.UPD_TRACK_FILE = generate_upd_track_filename(csv_path, timestamp)
+        # name for the file with both the loaded and the new tracks; only
+        # used once the track file is accepted, so a refused file doesn't
+        # redirect tracks accepted later into a file that was never written
+        upd_track_file = generate_upd_track_filename(csv_path, timestamp)
 
         try:
-            track_df = pd.read_csv(csv_path).astype(int)
-            expected_columns = ['tframe', 'y', 'x', 'displ_y', 'displ_x', 'track_no']
-            
-            # Check if the columns match the expected format
-            if list(track_df.columns) != expected_columns:
-                # Display error message if columns are incorrect
-                QMessageBox.critical(None, "CSV Format Error", f"CSV file must have the following columns in order: {expected_columns}")
+            # Check the columns first: the file must start with the standard
+            # track columns, in order; any further columns are extra columns
+            header = list(pd.read_csv(csv_path, nrows=0).columns)
+            if header[:len(TRACKING_COLUMNS)] != TRACKING_COLUMNS:
+                QMessageBox.critical(
+                    None, "Track File Not Loaded",
+                    "The track file must start with these columns, in this order: "
+                    f"{', '.join(TRACKING_COLUMNS)}.\n"
+                    f"It starts with: {', '.join(header[:len(TRACKING_COLUMNS)])}.\n\n"
+                    "Any further columns (e.g. label, area) are allowed and kept."
+                )
                 return
-            
+            track_extra_columns = header[len(TRACKING_COLUMNS):]
+
+            # Extra columns are read as text, exactly as written, so their
+            # values are copied unchanged into the combined file
+            track_df = pd.read_csv(
+                csv_path,
+                dtype={c: str for c in track_extra_columns},
+                keep_default_na=False,
+            )
+
             # Check if the file is empty or only has a header
-            if track_df.empty or (len(track_df) == 0 and not track_df.columns.empty):
+            if track_df.empty:
                 QMessageBox.critical(None, "File Is Empty", "The loaded file is empty or only contains a header.")
                 return
-            
+            track_df = track_df.astype({c: int for c in TRACKING_COLUMNS})
+
             # Load the current session tracks, if any
             # note that first part of the checked_session_file conditions is always met, added here because otherwise an error is thrown
             complete_path_to_session_file = os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)
@@ -290,15 +338,28 @@ def load_track_file():
             print(f'size is 0: {os.path.getsize(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)) == 0}')
             print(f'check_session_file:{check_session_file}')
 
+            # The combined file gets the extra columns of both the track file
+            # and the detections file (each once, track file's first), so tracks
+            # accepted later line up with its header. Rows from a file that
+            # doesn't have a column get NO_VALUE (-1) there.
+            combined_extra_columns = list(dict.fromkeys(track_extra_columns + shared_state.EXTRA_COLUMNS))
+            combined_columns = TRACKING_COLUMNS + combined_extra_columns
+            upd_track_file_path = os.path.join(shared_state.csv_folder_to_save, upd_track_file)
+
             if check_session_file:
                 # If session_df is empty, save track_df directly with the updated file name
-                updated_track_df_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE)
-                track_df.to_csv(updated_track_df_path, index=False)
+                track_df.reindex(columns=combined_columns, fill_value=NO_VALUE).to_csv(upd_track_file_path, index=False)
                 max_track_no = track_df['track_no'].max()
                 show_info("Track File Added. \n The track file has been successfully added. New tracks will be added to the existing tracks.")
                 
             else:
-                session_df = pd.read_csv(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))
+                # Extra columns are read as text, exactly as written, so their
+                # values are copied unchanged into the combined file
+                session_df = pd.read_csv(
+                    os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE),
+                    dtype={c: str for c in shared_state.EXTRA_COLUMNS},
+                    keep_default_na=False,
+                )
                 print(session_df)
 
                 # If session_df has data, extract the max value of track_no from track_df
@@ -308,12 +369,20 @@ def load_track_file():
                 print(session_df)
                 
                 # Concatenate the DataFrames
-                updated_tracks_df = pd.concat([track_df, session_df], ignore_index=True)
-                
+                updated_tracks_df = pd.concat(
+                    [
+                        track_df.reindex(columns=combined_columns, fill_value=NO_VALUE),
+                        session_df.reindex(columns=combined_columns, fill_value=NO_VALUE),
+                    ],
+                    ignore_index=True,
+                )
+
                 # Save the combined tracks to the new track file
-                updated_tracks_df.to_csv(os.path.join(shared_state.csv_folder_to_save, f"{shared_state.UPD_TRACK_FILE}"), index=False)
+                updated_tracks_df.to_csv(upd_track_file_path, index=False)
                 show_info("Track File Updated. \n The track file has been successfully updated with the new tracks.")
-    
+
+            shared_state.UPD_TRACK_FILE = upd_track_file
+            shared_state.COMBINED_EXTRA_COLUMNS = combined_extra_columns
             shared_state.MAX_TRACK_ID = max_track_no
 
             if track_file_label is not None:
@@ -333,8 +402,9 @@ def load_track_file():
 load_track_file.call_button.native.setToolTip(
     "Select a CSV of tracks accepted in a previous session, so new tracks\n"
     "continue numbering from where that session left off.\n"
-    "Must have exactly these columns, in this order:\n"
-    "tframe, y, x, displ_y, displ_x, track_no."
+    "Must start with these columns, in this order:\n"
+    "tframe, y, x, displ_y, displ_x, track_no.\n"
+    "Any further columns (e.g. label, area) are kept."
 )
 
 # go to following image
@@ -446,19 +516,21 @@ def update_image():
         # Ensure the frame number is within the range of DATA
         if 0 <= frame_number < len(shared_state.DATA):
             frame_data = shared_state.DATA[frame_number]
-            if frame_data:  # Only overlay points if data is present
-                columns = ['y', 'x', 'displ_y', 'displ_x'] if not shared_state.TRACKED else ['y', 'x', 'displ_y', 'displ_x', 'track_no']
-                overlay_points(pd.DataFrame(frame_data, columns=columns))
+            # Also called for a frame without detections, so the previous
+            # frame's points are cleared instead of staying on screen
+            columns = ['y', 'x', 'displ_y', 'displ_x'] if not shared_state.TRACKED else ['y', 'x', 'displ_y', 'displ_x', 'track_no']
+            overlay_points(pd.DataFrame(frame_data, columns=columns))
 
 def overlay_points(frame_data):
-    """Overlay circles on the image for each (x, y) in the frame data, with a separate layer for the track point."""
+    """Overlay circles on the image for each (x, y) in the frame data, with a separate layer for the track point.
+
+    For a frame without detections the layers are emptied, so no points of
+    another frame stay on screen."""
     global viewer, points_layer
 
-    if frame_data.empty:
-        print("No frame data provided")
-        return
-
-    # Extract (y, x) positions from the dataframe
+    # Extract (y, x) positions from the dataframe: one row [y, x] per detection.
+    # For a frame without detections this is an empty array with no rows,
+    # which empties the layers below.
     points = np.array([frame_data['y'], frame_data['x']]).T
     curr_track = shared_state.track
     if curr_track is None:
@@ -736,6 +808,11 @@ def add_detection(layer, event):
                 shared_state.DATA[shared_state.current_index].append([int(data_coords[0]), int(data_coords[1]), 0, 0, None])
             else:
                 shared_state.DATA[shared_state.current_index].append([int(data_coords[0]), int(data_coords[1]), 0, 0])
+            # an added detection didn't come from the detections file, so it has
+            # no values of its own in the extra columns
+            shared_state.EXTRA[shared_state.current_index].append(
+                tuple([NO_VALUE] * len(shared_state.EXTRA_COLUMNS))
+            )
 
             add_node_with_dummy_edges(node=f'D_{shared_state.current_index}_{shared_state.NUM_DET_PER_FRAME[shared_state.current_index]}',
                                       time_point=shared_state.current_index,
@@ -1153,6 +1230,9 @@ def clear_detections_and_tracks():
     
     # Reset shared state as needed
     shared_state.DATA = []  # Explicitly set to an empty list rather than None
+    shared_state.EXTRA = []
+    shared_state.EXTRA_COLUMNS = []
+    shared_state.COMBINED_EXTRA_COLUMNS = []
     shared_state.track = []
     shared_state.track_lines = None
     shared_state.NUM_DET_PER_FRAME = []
@@ -1209,12 +1289,12 @@ def write_updated_detections_to_file(data, updated_data_file, csv_path):
     # save up-to-date version of DATA
 
     f = open(os.path.join(csv_path, updated_data_file), "w")
-    f.write('tframe,y,x,displ_y,displ_x\n')
+    f.write(f'tframe,y,x,displ_y,displ_x{shared_state.extra_header()}\n')
     for i,_ in enumerate(data):
         for j,_ in enumerate(data[i]):
             # ensure that the detection that is deleted is not saved
             if (data[i][j][0]!=-1000000 and data[i][j][1]!=-1000000):
-                f.write(f"{i},{data[i][j][0]},{data[i][j][1]},{data[i][j][2]},{data[i][j][3]}\n")
+                f.write(f"{i},{data[i][j][0]},{data[i][j][1]},{data[i][j][2]},{data[i][j][3]}{shared_state.extra_values(i, j)}\n")
     f.close()
 
 def _maybe_start_repeat_right():
