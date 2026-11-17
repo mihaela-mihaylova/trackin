@@ -167,3 +167,36 @@ def test_delete_all_connections_no_op_when_track_is_empty_list(staged_shared_sta
     shared_state.track = []
 
     delete_all_connections()  # must not raise
+
+
+def test_accept_track_returns_messages_for_the_user(staged_shared_state):
+    """accept_track() returns the messages to show instead of showing them
+    itself: "Accepted track.", and here also "No detections left." because
+    the accepted track used every detection, so no new track is left."""
+    assert accept_track() == ["Accepted track.", "No detections left."]
+
+
+def test_actions_without_a_track_return_no_detections_left(staged_shared_state):
+    """Without a proposed track (e.g. right after loading new images), each
+    action does nothing and returns the message "No detections left." for
+    the plugin to show."""
+    shared_state.track = []
+
+    for action in (accept_track, save_segment, delete_segment, delete_all_connections):
+        assert action() == ["No detections left."]
+
+
+def test_utils_does_not_need_napari():
+    """utils.py must load without napari, so the tracking steps can be used
+    outside the plugin. Checked in a separate Python process, since napari
+    is already loaded in this one by the other tests."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "import sys, trackin.utils; "
+         "print(any(m.startswith('napari') for m in sys.modules))"],
+        capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() == "False"

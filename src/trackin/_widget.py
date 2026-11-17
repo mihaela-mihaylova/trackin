@@ -8,6 +8,7 @@ import napari
 import numpy as np
 from napari.utils.events import EventEmitter
 from .shared_state import shared_state, NO_VALUE
+from . import utils
 from datetime import datetime
 from .core.tracking import add_node_with_dummy_edges
 from .core.io import (
@@ -34,26 +35,14 @@ ZOOM_STEP = 1.1  # multiplicative zoom change per wheel notch
 
 
 # EVENT EMITTERS
-csv_loaded_event = EventEmitter(source=None, type_name='csv_loaded')
 data_updated_event = EventEmitter(source=None, type_name='data_updated')
-remove_track_node_event = EventEmitter(source=None, type_name='remove_track_node')
-accept_track_event = EventEmitter(source=None, type_name='accept_track')
-delete_segment_event = EventEmitter(source=None, type_name='delete_segment')
-save_segment_event = EventEmitter(source=None, type_name='save_segment')
-delete_all_connections_event = EventEmitter(source=None, type_name='delete_all_connections')
 graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 
-# utils.py wires up handlers for the events above (accept_track,
-# delete_segment, etc.) via .connect() calls at module level -- that only
-# happens once utils.py is actually imported. Previously the *only* thing
-# that imported it was trackin/__init__.py's `from .utils import
-# build_graph`; now that __init__.py is empty (napari resolves the widget
-# via trackin._widget:TrackinWidget directly, never importing __init__'s
-# old contents), we need to trigger that import here instead. Placed after
-# the event emitters above, not at the top of the file: utils.py imports
-# these six names back from this module, so this only works if they
-# already exist in this (still-initializing) module's namespace first.
-from . import utils  # noqa: F401
+def show_messages(messages):
+    """Show the messages returned by the tracking functions in utils.py
+    (e.g. 'Accepted track.') as napari notifications."""
+    for message in messages:
+        show_info(message)
 
 # Create timers for handling continuous key press events
 right_timer = QTimer()
@@ -252,7 +241,10 @@ def load_csv():
         shared_state.csv_folder_to_save = os.path.dirname(csv_path)
         shared_state.DATA = generate_positions_list(csv_data, shared_state.csv_folder_to_save, n_frames=len(images))
         csv_loaded = True
-        csv_loaded_event()  # Trigger CSV loaded event
+        # Build the graph and propose the first track
+        if shared_state.G is None:
+            show_info("Building graph...")
+        show_messages(utils.track())
 
         # Compute track lines once when CSV is loaded
         graph_updated_event()
@@ -706,7 +698,7 @@ def delete_det_by_key(layer):
 
     # Update the track state
     shared_state.track[shared_state.current_index] = -1
-    remove_track_node_event()
+    show_messages(utils.track())  # propose a new track without the deleted detection
 
     # Refresh the layer to update the visual display
     layer.refresh()
@@ -845,8 +837,8 @@ def add_detection(layer, event):
             print("Clicked outside the image bounds. Point not added.")
 
 def acceptTrack(event=None):
-    """Trigger the accept track event and move to frame 0."""
-    accept_track_event()  # Trigger the event to handle track acceptance
+    """Accept the current track and move to frame 0."""
+    show_messages(utils.accept_track())
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -858,7 +850,7 @@ def acceptTrack(event=None):
      
 def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
-    save_segment_event()
+    show_messages(utils.save_segment())
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -867,7 +859,7 @@ def saveSegment(event=None):
         container.setFocus()
 
 def deleteSegment(event=None):
-    delete_segment_event()
+    show_messages(utils.delete_segment())
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -878,7 +870,7 @@ def deleteSegment(event=None):
 
 def deleteAllConnections(event=None):
     """Triggers the function which would delete all outgoing edges (apart from an X- or T-edge)"""
-    delete_all_connections_event()
+    show_messages(utils.delete_all_connections())
     update_image()
     graph_updated_event()
     # Refocus the main container after handling the event

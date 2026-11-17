@@ -4,16 +4,16 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from .core.tracking import generate_graph, generate_track, generate_tracks, remove_all_successors
-from ._widget import csv_loaded_event, remove_track_node_event, accept_track_event, delete_segment_event, save_segment_event, delete_all_connections_event
 from .shared_state import shared_state
-from napari.utils.notifications import show_info
-from napari.utils.events import EventEmitter
 import os
+
+# These functions don't show anything themselves: they return the messages
+# for the user (e.g. 'No detections left.'), which the plugin's interface
+# shows. So they don't need napari.
 
 
 def track_to_posarray( trackp ):
     if trackp is None:
-        show_info('No detections left')
         shared_state.track = None
     else:
         data = shared_state.DATA
@@ -24,10 +24,13 @@ def track_to_posarray( trackp ):
         return shared_state.track
 
 def send_track():
+    """Propose the next track. Returns the messages for the user: a note
+    when there is no track left."""
     # load up-to-date values of variables
     data = shared_state.DATA
     graph = shared_state.G
     shared_state.track = track_to_posarray( generate_track( graph ) )
+    return ['No detections left.'] if shared_state.track is None else []
 
 def accept_track():
     track = shared_state.track
@@ -35,8 +38,7 @@ def accept_track():
     # a new CSV is loaded) -- not just None -- so this doesn't silently open
     # the *previous* dataset's SESSION_FILE and write a header into it.
     if not track:
-        show_info('No detections left.')
-        return
+        return ['No detections left.']
     shared_state.N_TRACKS += 1
     track_with_nodes = []
     session_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)
@@ -82,11 +84,7 @@ def accept_track():
 
 
     # this is used to remove the nodes used for the track
-    show_info(f'Accepted track.')
-
-    return send_track()
-
-accept_track_event.connect(accept_track)
+    return ['Accepted track.'] + send_track()
 
 # remove all the obsolete edges connected to nodes in a track segment
 def save_segment():
@@ -96,8 +94,7 @@ def save_segment():
     # (empty slice), but the send_track() call at the end still runs and
     # crashes on shared_state.G being None.
     if not shared_state.track:
-        show_info('No detections left.')
-        return
+        return ['No detections left.']
     s = shared_state.track[0:shared_state.current_index+1]
     if len(s) > 1:
         for i in range(len(s) - 1):
@@ -140,8 +137,6 @@ def save_segment_without_update():
             print(f"Successor nodes of {n1}: {list(shared_state.G.successors(n1))}")
 
 
-save_segment_event.connect(save_segment)
-
 def delete_segment():
     segment_to_delete = []
     updated_data_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE)
@@ -151,8 +146,7 @@ def delete_segment():
     # *previous* dataset, which would otherwise let this function through
     # to truncate-and-overwrite that dataset's UPDATED_DATA_FILE.
     if not shared_state.NUM_DETS or not shared_state.track:
-        show_info('No detections left.')
-        return
+        return ['No detections left.']
     for i, p in enumerate(shared_state.track[0:shared_state.current_index+1]):
         if p >= 0:
             # Assign nonsense values so that it's clear that the points from the accepted track have been deleted
@@ -175,16 +169,13 @@ def delete_segment():
                     g.write(f"{i},{shared_state.DATA[i][j][0]},{shared_state.DATA[i][j][1]},{shared_state.DATA[i][j][2]},{shared_state.DATA[i][j][3]}{shared_state.extra_values(i, j)}\n")
 
     return send_track()
-     
-delete_segment_event.connect(delete_segment)
 
 # deletes all edges from a node, apart from an X- or T-edge, 
 # as well as all obsolete edges to nodes in the segment up until the current detection
 def delete_all_connections():
     # e.g. right after images are reloaded, before a new CSV is loaded
     if not shared_state.track:
-        show_info('No detections left.')
-        return
+        return ['No detections left.']
     t1 = shared_state.current_index
     i1 = shared_state.track[shared_state.current_index]
     node_name = f'D_{t1}_{i1}'
@@ -199,8 +190,7 @@ def delete_all_connections():
         save_segment_without_update()
     else:
         print('No obsolete edges to remove. This is the very last frame. No incorrect edges will be deleted between the nodes in segment up to that point.')
-
-delete_all_connections_event.connect(delete_all_connections)
+    return []
 
 def build_graph():
     # ensure new values are loaded (values not updated by default)
@@ -216,11 +206,7 @@ def build_graph():
 def track():
     # If the graph isn't built yet, build it
     if shared_state.G is None:
-        show_info("Building graph...")
         build_graph()
 
     # Ensure the graph was actually built
-    send_track()
-
-csv_loaded_event.connect(track)
-remove_track_node_event.connect(track)
+    return send_track()
