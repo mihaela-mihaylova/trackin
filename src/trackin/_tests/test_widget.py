@@ -483,6 +483,25 @@ def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
             setattr(shared_state, field, value)
 
 
+def test_update_image_draws_detections_of_file_without_track_no(monkeypatch):
+    """Detections from a file without a track_no column must be drawn.
+    A Detection always has prior_track as its 5th value, which made
+    drawing fail for such files ("4 columns passed, passed data had 5")."""
+    viewer = ViewerModel()
+    monkeypatch.setattr(widget, "viewer", viewer)
+    monkeypatch.setattr(widget, "images", [np.zeros((20, 20))])
+    monkeypatch.setattr(widget, "image_files", ["0.png"])
+    monkeypatch.setattr(widget, "csv_data", pd.DataFrame())  # only needs to be "loaded"
+    monkeypatch.setattr(shared_state, "TRACKED", False)
+    monkeypatch.setattr(shared_state, "DATA", [[Detection(10, 10), Detection(15, 5)]])
+    monkeypatch.setattr(shared_state, "track", [0])
+    monkeypatch.setattr(shared_state, "current_index", 0)
+
+    widget.update_image()
+
+    assert len(viewer.layers["detections"].data) == 2
+
+
 def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     """Moving from a frame with detections to a frame without any must
     clear the points from the screen. Before, nothing was redrawn for an

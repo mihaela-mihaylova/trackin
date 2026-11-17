@@ -510,8 +510,11 @@ def update_image():
             frame_data = shared_state.DATA[frame_number]
             # Also called for a frame without detections, so the previous
             # frame's points are cleared instead of staying on screen
-            columns = ['y', 'x', 'displ_y', 'displ_x'] if not shared_state.TRACKED else ['y', 'x', 'displ_y', 'displ_x', 'track_no']
-            overlay_points(pd.DataFrame(frame_data, columns=columns))
+            # the positions of the frame's detections, which are drawn
+            overlay_points(pd.DataFrame({
+                'y': [d[0] for d in frame_data],
+                'x': [d[1] for d in frame_data],
+            }))
 
 def overlay_points(frame_data):
     """Overlay circles on the image for each (x, y) in the frame data, with a separate layer for the track point.
