@@ -689,7 +689,8 @@ def delete_detection(layer, event=None, use_key=False):
         event.handled = True
 
 def delete_det_by_key(layer):
-    """Delete track detection using the 'D' key."""
+    """Delete track detection using the 'D' key (or right-click on it), and
+    show the new proposed track from frame 0."""
     point_coords = layer.data[clicked_index].copy()
     layer.data[clicked_index] = [-1000000, -1000000]
 
@@ -702,7 +703,15 @@ def delete_det_by_key(layer):
 
     # Refresh the layer to update the visual display
     layer.refresh()
+    # The new track can differ in earlier frames too, so show it from
+    # frame 0, as after accepting a track or saving a segment
+    shared_state.current_index = 0
     update_image()
+    image_slider.image_index.value = shared_state.current_index  # Sync the slider value
+    # Move keyboard focus off the slider's number box, back to the panel,
+    # so keys like D and the arrows keep working
+    if container:
+        container.setFocus()
 
     # save up-to-date version of DATA
     write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)

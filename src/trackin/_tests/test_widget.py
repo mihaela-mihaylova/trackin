@@ -388,6 +388,26 @@ def test_delete_det_by_key_writes_updated_detections_file(tmp_path):
         widget.clicked_index = original_clicked_index
 
 
+def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
+    """Deleting a detection of the current track (D, or right-click on it)
+    proposes a new track, which can differ in earlier frames too, so the
+    view goes back to frame 0, as after accepting or saving a segment."""
+    monkeypatch.setattr(shared_state, "DATA", [[Detection(10, 20)], [Detection(12, 22), Detection(30, 40)]])
+    monkeypatch.setattr(shared_state, "TRACKED", False)
+    monkeypatch.setattr(shared_state, "track", [0, 0])
+    monkeypatch.setattr(shared_state, "current_index", 1)  # on frame 1
+    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
+    monkeypatch.setattr(shared_state, "UPDATED_DATA_FILE", "updated.csv")
+    monkeypatch.setattr(shared_state, "G", generate_graph(
+        shared_state.DATA, max_score=1600, score_func="squared", tracked=False))
+    monkeypatch.setattr(widget, "clicked_index", 0)
+
+    widget.delete_det_by_key(_FakeLayer(np.array([[12.0, 22.0], [30.0, 40.0]])))
+
+    assert shared_state.current_index == 0
+    assert widget.image_slider.image_index.value == 0
+
+
 def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
     """Same bug as the 'D' key path, via right-click deletion instead."""
     original = {
