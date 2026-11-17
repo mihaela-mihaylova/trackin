@@ -1,0 +1,183 @@
+{
+ "steps": [
+  {
+   "action": "load",
+   "track": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "detections": 16,
+   "connections": 50
+  },
+  {
+   "action": "W at frame 2",
+   "track": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "detections": 16,
+   "connections": 50
+  },
+  {
+   "action": "click noise at frame 3",
+   "track": [
+    0,
+    0,
+    0,
+    2,
+    0,
+    0
+   ],
+   "detections": 16,
+   "connections": 50
+  },
+  {
+   "action": "D at frame 3",
+   "track": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "detections": 15,
+   "connections": 46
+  },
+  {
+   "action": "right-click C at frame 2",
+   "track": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "detections": 14,
+   "connections": 42
+  },
+  {
+   "action": "add at frame 4",
+   "track": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "detections": 15,
+   "connections": 44
+  },
+  {
+   "action": "X at frame 2",
+   "track": [
+    0,
+    0,
+    0,
+    -1,
+    -1,
+    -1
+   ],
+   "detections": 15,
+   "connections": 43
+  },
+  {
+   "action": "accept",
+   "track": [
+    1,
+    1,
+    1,
+    1,
+    2,
+    2
+   ],
+   "detections": 12,
+   "connections": 35
+  },
+  {
+   "action": "Shift-Z at frame 3",
+   "track": [
+    -1,
+    -1,
+    -1,
+    0,
+    0,
+    0
+   ],
+   "detections": 8,
+   "connections": 22
+  },
+  {
+   "action": "accept",
+   "track": [
+    -1,
+    -1,
+    -1,
+    -1,
+    1,
+    1
+   ],
+   "detections": 5,
+   "connections": 14
+  },
+  {
+   "action": "accept",
+   "track": [
+    -1,
+    -1,
+    -1,
+    -1,
+    2,
+    2
+   ],
+   "detections": 3,
+   "connections": 7
+  },
+  {
+   "action": "accept",
+   "track": [
+    -1,
+    -1,
+    -1,
+    -1,
+    3,
+    -1
+   ],
+   "detections": 1,
+   "connections": 2
+  },
+  {
+   "action": "accept",
+   "track": [],
+   "detections": 0,
+   "connections": 0
+  }
+ ],
+ "session_file": [
+  "tframe,y,x,displ_y,displ_x,track_no,label",
+  "0,10,10,3,2,1,A",
+  "1,13,12,3,3,1,A",
+  "2,16,15,3,2,1,A",
+  "3,19,17,3,3,2,A",
+  "4,22,20,3,2,2,A",
+  "5,25,22,0,0,2,A",
+  "4,60,64,2,4,3,B",
+  "5,62,68,0,0,3,B",
+  "4,75,37,-2,4,4,C",
+  "5,73,41,0,0,4,C",
+  "4,40,40,0,0,5,-1"
+ ],
+ "leftover_file": [
+  "tframe,y,x,displ_y,displ_x,label"
+ ]
+}
