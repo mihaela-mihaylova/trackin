@@ -170,8 +170,8 @@ def test_add_white_border_rgb():
 
 def test_write_updated_detections_to_file(tmp_path):
     data = [
-        [(10, 20, 1, -1), (-1000000, -1000000, 0, 0)],  # frame 0: one real, one deleted
-        [(30, 40, 0, 2)],  # frame 1: one real
+        [Detection(10, 20, 1, -1), Detection(50, 60, active=False)],  # frame 0: one real, one deleted
+        [Detection(30, 40, 0, 2)],  # frame 1: one real
     ]
     write_updated_detections_to_file(data, "out.csv", str(tmp_path))
 
@@ -179,7 +179,7 @@ def test_write_updated_detections_to_file(tmp_path):
 
     # Header row
     assert lines[0] == "tframe,y,x,displ_y,displ_x"
-    # Deleted detection (-1000000 sentinel) excluded, only the two real ones written
+    # Deleted (inactive) detection excluded, only the two real ones written
     assert len(lines) == 3
     # Real detections written with correct tframe,y,x,displ_y,displ_x values
     assert lines[1] == "0,10,20,1,-1"
@@ -366,7 +366,7 @@ def test_delete_det_by_key_writes_updated_detections_file(tmp_path):
 
     try:
         shared_state.current_index = 0
-        shared_state.DATA = [[(10, 20, 0, 0), (30, 40, 0, 0)]]
+        shared_state.DATA = [[Detection(10, 20), Detection(30, 40)]]
         shared_state.TRACKED = False
         shared_state.track = [-1]
         shared_state.csv_folder_to_save = str(tmp_path)
@@ -401,7 +401,7 @@ def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
 
     try:
         shared_state.current_index = 0
-        shared_state.DATA = [[(10, 20, 0, 0), (30, 40, 0, 0)]]
+        shared_state.DATA = [[Detection(10, 20), Detection(30, 40)]]
         shared_state.TRACKED = False
         shared_state.csv_folder_to_save = str(tmp_path)
         shared_state.UPDATED_DATA_FILE = "updated.csv"
@@ -502,6 +502,26 @@ def test_update_image_draws_detections_of_file_without_track_no(monkeypatch):
     assert len(viewer.layers["detections"].data) == 2
 
 
+def test_update_image_hides_deleted_detections(monkeypatch):
+    """A deleted detection keeps its position in DATA (active=False), but
+    must not be seen: it is drawn far off-screen, at the same place in the
+    layer, so the index of a clicked point still matches its detection."""
+    viewer = ViewerModel()
+    monkeypatch.setattr(widget, "viewer", viewer)
+    monkeypatch.setattr(widget, "images", [np.zeros((20, 20))])
+    monkeypatch.setattr(widget, "image_files", ["0.png"])
+    monkeypatch.setattr(widget, "csv_data", pd.DataFrame())  # only needs to be "loaded"
+    monkeypatch.setattr(shared_state, "TRACKED", False)
+    monkeypatch.setattr(shared_state, "DATA", [[Detection(10, 10), Detection(15, 5, active=False)]])
+    monkeypatch.setattr(shared_state, "track", [0])
+    monkeypatch.setattr(shared_state, "current_index", 0)
+
+    widget.update_image()
+
+    points = viewer.layers["detections"].data.tolist()
+    assert points == [[10, 10], [-1000000, -1000000]]
+
+
 def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     """Moving from a frame with detections to a frame without any must
     clear the points from the screen. Before, nothing was redrawn for an
@@ -518,7 +538,7 @@ def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     monkeypatch.setattr(widget, "csv_data", pd.DataFrame())  # only needs to be "loaded"
     monkeypatch.setattr(shared_state, "TRACKED", False)
     # frame 0 has one detection, which is on the current track; frame 1 has none
-    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0)], []])
+    monkeypatch.setattr(shared_state, "DATA", [[Detection(10, 10)], []])
     monkeypatch.setattr(shared_state, "track", [0, -1])
 
     monkeypatch.setattr(shared_state, "current_index", 0)
@@ -707,8 +727,8 @@ def test_write_updated_detections_to_file_writes_extra_columns(tmp_path, monkeyp
     monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
     monkeypatch.setattr(shared_state, "EXTRA", [[(7, "cell_A"), (8, "x, y")], [(9, float("nan"))]])
     data = [
-        [(10, 20, 0, 0), (-1000000, -1000000, 0, 0)],  # frame 0: one real, one deleted
-        [(30, 40, 0, 0)],
+        [Detection(10, 20), Detection(50, 60, active=False)],  # frame 0: one real, one deleted
+        [Detection(30, 40)],
     ]
 
     write_updated_detections_to_file(data, "out.csv", str(tmp_path))
@@ -728,7 +748,7 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     from trackin import utils
 
     monkeypatch.setattr(shared_state, "TRACKED", False)
-    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0), (50, 50, 0, 0)], [(12, 12, 0, 0)]])
+    monkeypatch.setattr(shared_state, "DATA", [[Detection(10, 10), Detection(50, 50)], [Detection(12, 12)]])
     monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
     monkeypatch.setattr(shared_state, "EXTRA", [[(7, "cell_A"), (8, "x, y")], [(9, float("nan"))]])
     monkeypatch.setattr(shared_state, "track", [0, 0])  # first detection of frame 0, then of frame 1
@@ -760,7 +780,7 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
     file, so it gets -1 (NO_VALUE) in every extra column, in memory and in
     the leftover file."""
     monkeypatch.setattr(shared_state, "TRACKED", False)
-    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0)], [(20, 20, 0, 0)]])
+    monkeypatch.setattr(shared_state, "DATA", [[Detection(10, 10)], [Detection(20, 20)]])
     monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label"])
     monkeypatch.setattr(shared_state, "EXTRA", [[(7,)], [(8,)]])
     monkeypatch.setattr(shared_state, "NUM_DET_PER_FRAME", [1, 1])
@@ -924,7 +944,7 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
         "0,5,5,0,0,3,4,good,-1\n"
     )
     monkeypatch.setattr(shared_state, "TRACKED", False)
-    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0)], [(12, 12, 0, 0)]])
+    monkeypatch.setattr(shared_state, "DATA", [[Detection(10, 10)], [Detection(12, 12)]])
     monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
     monkeypatch.setattr(shared_state, "EXTRA", [[(7, "cell_A")], [(8, "cell_A")]])
     monkeypatch.setattr(shared_state, "COMBINED_EXTRA_COLUMNS", ["label", "quality", "note"])

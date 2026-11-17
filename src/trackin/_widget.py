@@ -510,10 +510,12 @@ def update_image():
             frame_data = shared_state.DATA[frame_number]
             # Also called for a frame without detections, so the previous
             # frame's points are cleared instead of staying on screen
-            # the positions of the frame's detections, which are drawn
+            # the positions of the frame's detections, which are drawn; a
+            # deleted detection is put far off-screen, so it isn't seen but
+            # keeps its place (a clicked point's place is its index)
             overlay_points(pd.DataFrame({
-                'y': [d[0] for d in frame_data],
-                'x': [d[1] for d in frame_data],
+                'y': [d[0] if d.active else -1000000 for d in frame_data],
+                'x': [d[1] if d.active else -1000000 for d in frame_data],
             }))
 
 def overlay_points(frame_data):
@@ -1257,7 +1259,7 @@ def write_updated_detections_to_file(data, updated_data_file, csv_path):
     for i,_ in enumerate(data):
         for j,_ in enumerate(data[i]):
             # ensure that the detection that is deleted is not saved
-            if (data[i][j][0]!=-1000000 and data[i][j][1]!=-1000000):
+            if data[i][j].active:
                 f.write(f"{i},{data[i][j][0]},{data[i][j][1]},{data[i][j][2]},{data[i][j][3]}{shared_state.extra_values(i, j)}\n")
     f.close()
 

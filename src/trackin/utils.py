@@ -63,11 +63,8 @@ def accept_track():
         for i, p in enumerate(track):
             if p >= 0:
                 f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]},{shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{shared_state.N_TRACKS}{shared_state.extra_values(i, p)}\n")
-                # Assign nonsense values so that it's clear that the points from the accepted track have been deleted
-                if shared_state.TRACKED:
-                    shared_state.DATA[i][p] = (-1000000,-1000000,0,0,None)
-                else:
-                    shared_state.DATA[i][p] = (-1000000,-1000000,0,0)
+                # the points of the accepted track are no longer available
+                deactivate(i, p)
                 # remove nodes from track
                 shared_state.G.remove_node(f'D_{i}_{p}')
                 # add node names to list
@@ -80,7 +77,7 @@ def accept_track():
         for i, _ in enumerate(shared_state.DATA):
             for j, _ in enumerate(shared_state.DATA[i]):
                 # Ensure that the detections included in the accepted track are removed from the saved version
-                if shared_state.DATA[i][j][0] != -1000000 and shared_state.DATA[i][j][1] != -1000000:
+                if shared_state.DATA[i][j].active:
                     g.write(f"{i},{shared_state.DATA[i][j][0]},{shared_state.DATA[i][j][1]},{shared_state.DATA[i][j][2]},{shared_state.DATA[i][j][3]}{shared_state.extra_values(i, j)}\n")
 
 
@@ -150,11 +147,8 @@ def delete_segment():
         return ['No detections left.']
     for i, p in enumerate(shared_state.track[0:shared_state.current_index+1]):
         if p >= 0:
-            # Assign nonsense values so that it's clear that the points from the accepted track have been deleted
-            if shared_state.TRACKED:
-                shared_state.DATA[i][p] = (-1000000, -1000000, 0, 0, None)
-            else:
-                shared_state.DATA[i][p] = (-1000000, -1000000, 0, 0)
+            # the points of the deleted segment are no longer available
+            deactivate(i, p)
             # remove nodes from track
             shared_state.G.remove_node(f'D_{i}_{p}')
             # add node names to list
@@ -166,7 +160,7 @@ def delete_segment():
         for i, _ in enumerate(shared_state.DATA):
             for j, _ in enumerate(shared_state.DATA[i]):
                 # Ensure that the detections included in the accepted track are removed from the saved version
-                if shared_state.DATA[i][j][0] != -1000000 and shared_state.DATA[i][j][1] != -1000000:
+                if shared_state.DATA[i][j].active:
                     g.write(f"{i},{shared_state.DATA[i][j][0]},{shared_state.DATA[i][j][1]},{shared_state.DATA[i][j][2]},{shared_state.DATA[i][j][3]}{shared_state.extra_values(i, j)}\n")
 
     return send_track()
@@ -212,13 +206,16 @@ def track():
     # Ensure the graph was actually built
     return send_track()
 
+def deactivate(frame, index):
+    """Mark detection `index` in `frame` as no longer available: deleted,
+    or used in an accepted track. Its position is kept."""
+    shared_state.DATA[frame][index] = shared_state.DATA[frame][index]._replace(active=False)
+
+
 def delete_detection(frame, index):
     """Delete detection `index` in `frame`: mark it as deleted in DATA and
     remove it from the graph. Used by the D key and by right-click."""
-    if shared_state.TRACKED:
-        shared_state.DATA[frame][index] = [-1000000, -1000000, 0, 0, None]
-    else:
-        shared_state.DATA[frame][index] = [-1000000, -1000000, 0, 0]
+    deactivate(frame, index)
     shared_state.G.remove_node(f'D_{frame}_{index}')
 
 

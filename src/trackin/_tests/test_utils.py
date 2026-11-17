@@ -1,5 +1,6 @@
 import pytest
 
+from trackin.core.detection import Detection
 from trackin.shared_state import shared_state
 from trackin.core.tracking import generate_graph
 from trackin.utils import accept_track, delete_all_connections, delete_segment, save_segment
@@ -26,7 +27,7 @@ def staged_shared_state(tmp_path):
     a module-level singleton shared across tests."""
     original = {field: getattr(shared_state, field) for field in SHARED_STATE_FIELDS}
 
-    shared_state.DATA = [[(10, 20, 0, 0)], [(30, 40, 0, 0)]]
+    shared_state.DATA = [[Detection(10, 20)], [Detection(30, 40)]]
     shared_state.track = [0, 0]  # accept the single detection in each frame
     shared_state.csv_folder_to_save = str(tmp_path)
     shared_state.SESSION_FILE = "session.csv"
@@ -59,8 +60,9 @@ def test_accept_track_writes_session_file_and_marks_detections_consumed(
     updated_lines = (tmp_path / "updated.csv").read_text().splitlines()
     assert updated_lines == ["tframe,y,x,displ_y,displ_x"]  # both detections consumed
 
-    assert shared_state.DATA[0][0] == (-1000000, -1000000, 0, 0)
-    assert shared_state.DATA[1][0] == (-1000000, -1000000, 0, 0)
+    # kept with their position, but no longer available
+    assert shared_state.DATA[0][0] == Detection(10, 20, active=False)
+    assert shared_state.DATA[1][0] == Detection(30, 40, active=False)
 
 
 def test_accept_track_does_not_duplicate_header_when_session_file_has_content(

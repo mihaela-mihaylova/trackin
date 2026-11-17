@@ -14,3 +14,6 @@ class Detection(NamedTuple):
     # track number from an earlier tracking run (the track_no column of an
     # already-tracked detections file); None if there is none
     prior_track: int | None = None
+    # False once the detection is deleted or used in an accepted track;
+    # its position is kept
+    active: bool = True
