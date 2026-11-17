@@ -3,8 +3,8 @@ import math
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from .core.tracking import generate_graph, generate_track, generate_tracks, remove_all_successors
-from .shared_state import shared_state
+from .core.tracking import generate_graph, generate_track, generate_tracks, remove_all_successors, add_node_with_dummy_edges
+from .shared_state import shared_state, NO_VALUE
 import os
 
 # These functions don't show anything themselves: they return the messages
@@ -210,3 +210,31 @@ def track():
 
     # Ensure the graph was actually built
     return send_track()
+
+def delete_detection(frame, index):
+    """Delete detection `index` in `frame`: mark it as deleted in DATA and
+    remove it from the graph. Used by the D key and by right-click."""
+    if shared_state.TRACKED:
+        shared_state.DATA[frame][index] = [-1000000, -1000000, 0, 0, None]
+    else:
+        shared_state.DATA[frame][index] = [-1000000, -1000000, 0, 0]
+    shared_state.G.remove_node(f'D_{frame}_{index}')
+
+
+def add_detection(frame, y, x):
+    """Add a detection by hand at (y, x) in `frame`, to DATA and to the
+    graph. It gets NO_VALUE in the extra columns, as it didn't come from
+    the detections file. Returns the new detection's index in the frame."""
+    index = shared_state.NUM_DET_PER_FRAME[frame]
+    if shared_state.TRACKED:
+        shared_state.DATA[frame].append([y, x, 0, 0, None])
+    else:
+        shared_state.DATA[frame].append([y, x, 0, 0])
+    shared_state.EXTRA[frame].append(tuple([NO_VALUE] * len(shared_state.EXTRA_COLUMNS)))
+    add_node_with_dummy_edges(node=f'D_{frame}_{index}', time_point=frame, idx=index,
+                              y=y, x=x, displ_y=0, displ_x=0, G=shared_state.G,
+                              highest_frame_id=len(shared_state.DATA)-1,
+                              max_score=shared_state.MAX_SCORE)
+    print(f'Added node D_{frame}_{index}.')
+    shared_state.NUM_DET_PER_FRAME[frame] += 1
+    return index

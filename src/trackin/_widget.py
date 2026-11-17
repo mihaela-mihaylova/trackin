@@ -10,7 +10,6 @@ from napari.utils.events import EventEmitter
 from .shared_state import shared_state, NO_VALUE
 from . import utils
 from datetime import datetime
-from .core.tracking import add_node_with_dummy_edges
 from .core.io import (
     TRACKING_COLUMNS, IMAGE_NAMING_RULE, read_detections_csv, check_and_add_displ_cols,
     list_image_files, format_list, check_image_numbering, check_detection_frames,
@@ -688,13 +687,8 @@ def delete_det_by_key(layer):
     point_coords = layer.data[clicked_index].copy()
     layer.data[clicked_index] = [-1000000, -1000000]
 
-    if shared_state.TRACKED:
-        shared_state.DATA[shared_state.current_index][clicked_index] = [-1000000, -1000000, 0, 0, None]
-    else:
-        shared_state.DATA[shared_state.current_index][clicked_index] = [-1000000, -1000000, 0, 0]
-
     node_name = f'D_{shared_state.current_index}_{clicked_index}'
-    shared_state.G.remove_node(node_name)
+    utils.delete_detection(shared_state.current_index, clicked_index)
 
     # Update the track state
     shared_state.track[shared_state.current_index] = -1
@@ -715,13 +709,8 @@ def delete_det_by_mouse(layer, event):
     point_coords = layer.data[clicked_index].copy()
     layer.data[clicked_index] = [-1000000, -1000000]
 
-    if shared_state.TRACKED:
-        shared_state.DATA[shared_state.current_index][clicked_index] = [-1000000, -1000000, 0, 0, None]
-    else:
-        shared_state.DATA[shared_state.current_index][clicked_index] = [-1000000, -1000000, 0, 0]
-
     node_name = f'D_{shared_state.current_index}_{clicked_index}'
-    shared_state.G.remove_node(node_name)
+    utils.delete_detection(shared_state.current_index, clicked_index)
 
     layer.refresh()
     update_image()
@@ -795,29 +784,8 @@ def add_detection(layer, event):
             layer.size = new_size_array
             layer.border_width_is_relative = False  # Ensure the border width is absolute
 
-            # Ensure the new point is added with the correct data in shared_state
-            if shared_state.TRACKED:
-                shared_state.DATA[shared_state.current_index].append([int(data_coords[0]), int(data_coords[1]), 0, 0, None])
-            else:
-                shared_state.DATA[shared_state.current_index].append([int(data_coords[0]), int(data_coords[1]), 0, 0])
-            # an added detection didn't come from the detections file, so it has
-            # no values of its own in the extra columns
-            shared_state.EXTRA[shared_state.current_index].append(
-                tuple([NO_VALUE] * len(shared_state.EXTRA_COLUMNS))
-            )
-
-            add_node_with_dummy_edges(node=f'D_{shared_state.current_index}_{shared_state.NUM_DET_PER_FRAME[shared_state.current_index]}',
-                                      time_point=shared_state.current_index,
-                                      idx=shared_state.NUM_DET_PER_FRAME[shared_state.current_index],
-                                      y=int(data_coords[0]),
-                                      x=int(data_coords[1]),
-                                      displ_y=0,
-                                      displ_x=0,
-                                      G=shared_state.G,
-                                      highest_frame_id=len(shared_state.DATA)-1,
-                                      max_score=shared_state.MAX_SCORE)
-            print(f'Added node D_{shared_state.current_index}_{shared_state.NUM_DET_PER_FRAME[shared_state.current_index]}.')
-            shared_state.NUM_DET_PER_FRAME[shared_state.current_index] += 1
+            # Add the new detection to the tracking data and the graph
+            utils.add_detection(shared_state.current_index, int(data_coords[0]), int(data_coords[1]))
 
             # Refresh the layer to display the new point
             layer.refresh()
