@@ -9,6 +9,7 @@ import numpy as np
 from napari.utils.events import EventEmitter
 from .shared_state import shared_state, NO_VALUE
 from . import utils
+from .core.detection import Detection
 from datetime import datetime
 from .core.io import (
     TRACKING_COLUMNS, IMAGE_NAMING_RULE, read_detections_csv, check_and_add_displ_cols,
@@ -115,7 +116,7 @@ def generate_positions_list(df, folder_to_save, n_frames=0):
     positions = zip(*(df[c].tolist() for c in columns))
     extras = zip(*(df[c].tolist() for c in shared_state.EXTRA_COLUMNS)) if shared_state.EXTRA_COLUMNS else ([()] * len(df))
     for t, position, extra in zip(df['tframe'].tolist(), positions, extras):
-        positions_per_frame[int(t)].append(tuple(position))
+        positions_per_frame[int(t)].append(Detection(*position))
         extras_per_frame[int(t)].append(tuple(extra))
 
     for positions in positions_per_frame:

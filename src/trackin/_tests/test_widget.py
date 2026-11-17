@@ -7,6 +7,7 @@ from napari.components import ViewerModel
 from skimage.io import imsave
 
 import trackin._widget as widget
+from trackin.core.detection import Detection
 from trackin._widget import (
     add_white_border,
     check_and_add_displ_cols,
@@ -66,10 +67,10 @@ def test_generate_positions_list_keeps_empty_frames(tmp_path, monkeypatch):
     data = widget.generate_positions_list(df, str(tmp_path), n_frames=5)
 
     assert len(data) == 5  # one entry per image
-    assert data[0] == [(10, 11, 0, 0)]
-    assert data[1] == [(20, 22, 0, 0), (21, 23, 0, 0)]
+    assert data[0] == [Detection(10, 11)]
+    assert data[1] == [Detection(20, 22), Detection(21, 23)]
     assert data[2] == []  # empty frame stays empty instead of shifting
-    assert data[3] == [(30, 33, 0, 0)]
+    assert data[3] == [Detection(30, 33)]
     assert data[4] == []
 
 
@@ -673,8 +674,8 @@ def test_generate_positions_list_stores_extra_values(tmp_path, monkeypatch):
 
     data = widget.generate_positions_list(df, str(tmp_path), n_frames=3)
 
-    assert data[0] == [(10, 20, 0, 0)]
-    assert type(data[0][0][0]) is int  # not turned into a decimal or text
+    assert data[0] == [Detection(10, 20)]
+    assert type(data[0][0].y) is int  # not turned into a decimal or text
     assert shared_state.EXTRA[0] == [("cell_A", 350.5)]
     assert shared_state.EXTRA[1] == []  # empty frame
     assert shared_state.EXTRA[2] == [("cell_B", 410.0)]

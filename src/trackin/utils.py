@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from .core.tracking import generate_graph, generate_track, generate_tracks, remove_all_successors, add_node_with_dummy_edges
+from .core.detection import Detection
 from .shared_state import shared_state, NO_VALUE
 import os
 
@@ -226,10 +227,7 @@ def add_detection(frame, y, x):
     graph. It gets NO_VALUE in the extra columns, as it didn't come from
     the detections file. Returns the new detection's index in the frame."""
     index = shared_state.NUM_DET_PER_FRAME[frame]
-    if shared_state.TRACKED:
-        shared_state.DATA[frame].append([y, x, 0, 0, None])
-    else:
-        shared_state.DATA[frame].append([y, x, 0, 0])
+    shared_state.DATA[frame].append(Detection(y, x))
     shared_state.EXTRA[frame].append(tuple([NO_VALUE] * len(shared_state.EXTRA_COLUMNS)))
     add_node_with_dummy_edges(node=f'D_{frame}_{index}', time_point=frame, idx=index,
                               y=y, x=x, displ_y=0, displ_x=0, G=shared_state.G,
