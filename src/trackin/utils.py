@@ -144,12 +144,9 @@ def delete_segment(track, upto):
     """Delete the detections of `track` from frame 0 up to frame `upto`. Shift-Z."""
     segment_to_delete = []
     updated_data_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE)
-    # `not track` also catches track == [] (e.g. right after
-    # images are reloaded, before a new CSV is loaded); NUM_DETS alone isn't
-    # enough there since it can still hold a stale nonzero value from the
-    # *previous* dataset, which would otherwise let this function through
-    # to truncate-and-overwrite that dataset's UPDATED_DATA_FILE.
-    if not shared_state.NUM_DETS or not track:
+    # No track: e.g. right after images are reloaded, before a new CSV is
+    # loaded. Stopping here keeps the previous dataset's leftover file intact.
+    if not track:
         return ['No detections left.']
     for i, p in enumerate(track[0:upto+1]):
         if p >= 0:
@@ -214,6 +211,17 @@ def track():
 
     # Ensure the graph was actually built
     return send_track()
+
+def stats():
+    """The number of detections and connections in the graph, as shown in
+    the panel ("Detections: …", "Connections: …"). The graph's start, end
+    and per-frame helper nodes, and their links, are not counted."""
+    n_frames = len(shared_state.DATA)
+    return {
+        "detections": shared_state.G.number_of_nodes() - 2 - 2 * (n_frames - 1),
+        "connections": shared_state.G.number_of_edges() - 2 * (n_frames - 1),
+    }
+
 
 def deactivate(frame, index):
     """Mark detection `index` in `frame` as no longer available: deleted,

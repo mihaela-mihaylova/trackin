@@ -69,14 +69,6 @@ def load(detections, folder, max_score=1600, score_func="squared"):
     utils.track()
 
 
-def update_counters():
-    """What the panel does after every action: count the detections and
-    connections in the graph (the "Detections" and "Connections" shown).
-    Shift-Z only works once these are counted."""
-    shared_state.NUM_DETS = shared_state.G.number_of_nodes() - 2 - 2 * (len(shared_state.DATA) - 1)
-    shared_state.NUM_CONN = shared_state.G.number_of_edges() - 2 * (len(shared_state.DATA) - 1)
-
-
 def index_at(frame, y, x):
     """Which detection in `frame` is at (y, x)."""
     return next(i for i, d in enumerate(shared_state.DATA[frame]) if (d.y, d.x) == (y, x))
@@ -112,12 +104,12 @@ def replay_edits(folder):
     steps = []
 
     def note(action):
-        update_counters()
+        counts = utils.stats()  # the "Detections" and "Connections" shown in the panel
         steps.append({
             "action": action,
             "track": list(shared_state.track or []),
-            "detections": shared_state.NUM_DETS,
-            "connections": shared_state.NUM_CONN,
+            "detections": counts["detections"],
+            "connections": counts["connections"],
         })
 
     # Load Detections

@@ -131,10 +131,10 @@ def test_accept_track_no_op_when_track_is_empty_list(staged_shared_state):
 def test_delete_segment_no_op_when_track_is_empty_list_even_with_stale_num_dets(
     staged_shared_state,
 ):
-    """NUM_DETS can still hold a stale nonzero value from the *previous*
-    dataset right after images are reloaded -- delete_segment() must not
-    rely on NUM_DETS alone, since that would let it through to
-    truncate-and-overwrite that dataset's UPDATED_DATA_FILE."""
+    """Right after images are reloaded there is no track, while the panel's
+    counter (NUM_DETS) can still hold a value from the *previous* dataset.
+    delete_segment() must do nothing then, and not truncate-and-overwrite
+    that dataset's UPDATED_DATA_FILE."""
     tmp_path = staged_shared_state
     shared_state.track = []
     shared_state.NUM_DETS = 5  # stale nonzero value
@@ -203,3 +203,17 @@ def test_utils_does_not_need_napari():
         capture_output=True, text=True, check=True,
     )
     assert result.stdout.strip() == "False"
+
+
+def test_delete_segment_works_without_the_panel_counting(staged_shared_state):
+    """Shift-Z must not depend on the panel's "Detections" counter
+    (NUM_DETS), which is only set when the panel is shown. Before, it did
+    nothing while NUM_DETS was unset, e.g. when the tracking is used without
+    the plugin's panel."""
+    tmp_path = staged_shared_state
+    shared_state.NUM_DETS = None  # the panel hasn't counted anything
+
+    assert delete_segment(shared_state.track, 1) == ["No detections left."]  # nothing left to propose
+    assert shared_state.DATA[0][0].active is False  # both detections deleted
+    assert shared_state.DATA[1][0].active is False
+    assert (tmp_path / "updated.csv").read_text().splitlines() == ["tframe,y,x,displ_y,displ_x"]

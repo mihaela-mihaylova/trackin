@@ -1325,8 +1325,9 @@ def update_labels():
 
     if shared_state.G is not None:
         # Compute the number of detections and connections
-        shared_state.NUM_DETS = shared_state.G.number_of_nodes() - 2 - 2 * (len(shared_state.DATA) - 1)
-        shared_state.NUM_CONN = shared_state.G.number_of_edges() - 2 * (len(shared_state.DATA) - 1)
+        counts = utils.stats()
+        shared_state.NUM_DETS = counts["detections"]
+        shared_state.NUM_CONN = counts["connections"]
 
         # Check if labels exist, if not create and add them to the layout
         if dets_label is None:
