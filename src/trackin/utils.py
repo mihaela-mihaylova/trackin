@@ -55,14 +55,16 @@ def accept_track():
             updated_track_id = shared_state.MAX_TRACK_ID + shared_state.N_TRACKS
             for i, p in enumerate(track):
                 if p >= 0:
-                    f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]},{shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{updated_track_id}{shared_state.combined_extra_values(i, p)}\n")
+                    d = shared_state.DATA[i][p]
+                    f.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x},{updated_track_id}{shared_state.combined_extra_values(i, p)}\n")
 
     with open(session_file_path, "a") as f:
         if add_header:
             f.write(f"tframe,y,x,displ_y,displ_x,track_no{shared_state.extra_header()}\n")  # Write the header row
         for i, p in enumerate(track):
             if p >= 0:
-                f.write(f"{i},{shared_state.DATA[i][p][0]},{shared_state.DATA[i][p][1]},{shared_state.DATA[i][p][2]},{shared_state.DATA[i][p][3]},{shared_state.N_TRACKS}{shared_state.extra_values(i, p)}\n")
+                d = shared_state.DATA[i][p]
+                f.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x},{shared_state.N_TRACKS}{shared_state.extra_values(i, p)}\n")
                 # the points of the accepted track are no longer available
                 deactivate(i, p)
                 # remove nodes from track
@@ -78,7 +80,8 @@ def accept_track():
             for j, _ in enumerate(shared_state.DATA[i]):
                 # Ensure that the detections included in the accepted track are removed from the saved version
                 if shared_state.DATA[i][j].active:
-                    g.write(f"{i},{shared_state.DATA[i][j][0]},{shared_state.DATA[i][j][1]},{shared_state.DATA[i][j][2]},{shared_state.DATA[i][j][3]}{shared_state.extra_values(i, j)}\n")
+                    d = shared_state.DATA[i][j]
+                    g.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x}{shared_state.extra_values(i, j)}\n")
 
 
     # this is used to remove the nodes used for the track
@@ -161,7 +164,8 @@ def delete_segment():
             for j, _ in enumerate(shared_state.DATA[i]):
                 # Ensure that the detections included in the accepted track are removed from the saved version
                 if shared_state.DATA[i][j].active:
-                    g.write(f"{i},{shared_state.DATA[i][j][0]},{shared_state.DATA[i][j][1]},{shared_state.DATA[i][j][2]},{shared_state.DATA[i][j][3]}{shared_state.extra_values(i, j)}\n")
+                    d = shared_state.DATA[i][j]
+                    g.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x}{shared_state.extra_values(i, j)}\n")
 
     return send_track()
 

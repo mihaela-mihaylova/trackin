@@ -4,9 +4,7 @@ from typing import NamedTuple
 
 
 class Detection(NamedTuple):
-    """A detection with named fields (d.y, d.x, ...). It can still be read
-    by position like the plain tuples it replaces (d[0] is y, d[1] is x,
-    ...), until all code reads it by name."""
+    """A detection in one frame, with named fields (d.y, d.x, ...)."""
     y: int
     x: int
     displ_y: int = 0

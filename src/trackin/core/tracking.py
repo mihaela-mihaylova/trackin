@@ -43,9 +43,9 @@ def generate_graph(points, max_score, score_func, tracked):
         # add the detection nodes contained in frame t
         for i, pti in enumerate(pt):
             if not tracked:
-                G.add_node(f"D_{t}_{i}", time_point = t, idx = i, y=pti[0], x=pti[1], displ_y=int(pti[2]), displ_x=int(pti[3]), type = 'D')
+                G.add_node(f"D_{t}_{i}", time_point = t, idx = i, y=pti.y, x=pti.x, displ_y=int(pti.displ_y), displ_x=int(pti.displ_x), type = 'D')
             else:
-                G.add_node(f"D_{t}_{i}", time_point = t, idx = i, y=pti[0], x=pti[1], displ_y=int(pti[2]), displ_x=int(pti[3]), track_no = int(pti[4]), type = 'D')
+                G.add_node(f"D_{t}_{i}", time_point = t, idx = i, y=pti.y, x=pti.x, displ_y=int(pti.displ_y), displ_x=int(pti.displ_x), track_no = int(pti.prior_track), type = 'D')
             
             # add nodes to list of nodes per frame, used for adding STXY-edges later
             nodes_per_frame[t].append(f"D_{t}_{i}")

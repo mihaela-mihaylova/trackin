@@ -514,8 +514,8 @@ def update_image():
             # deleted detection is put far off-screen, so it isn't seen but
             # keeps its place (a clicked point's place is its index)
             overlay_points(pd.DataFrame({
-                'y': [d[0] if d.active else -1000000 for d in frame_data],
-                'x': [d[1] if d.active else -1000000 for d in frame_data],
+                'y': [d.y if d.active else -1000000 for d in frame_data],
+                'x': [d.x if d.active else -1000000 for d in frame_data],
             }))
 
 def overlay_points(frame_data):
@@ -603,7 +603,8 @@ def overlay_points(frame_data):
     for t in range(len(shared_state.track)):
         track_idx = shared_state.track[t]
         if track_idx != -1:
-            y, x = shared_state.DATA[t][track_idx][:2]  # Get (y, x) coordinates
+            d = shared_state.DATA[t][track_idx]
+            y, x = d.y, d.x
             track_points.append([y, x])
 
     if len(track_points) > 1:
@@ -637,7 +638,8 @@ def compute_track_lines():
         if track_idx is not None and track_idx != -1:
             # Ensure track index is within bounds of shared_state.DATA[t]
             if 0 <= track_idx < len(shared_state.DATA[t]):
-                y, x = shared_state.DATA[t][track_idx][:2]
+                d = shared_state.DATA[t][track_idx]
+                y, x = d.y, d.x
                 track_points.append([y, x])
 
     # Create line segments only if there are at least two points in the track
@@ -1269,7 +1271,8 @@ def write_updated_detections_to_file(data, updated_data_file, csv_path):
         for j,_ in enumerate(data[i]):
             # ensure that the detection that is deleted is not saved
             if data[i][j].active:
-                f.write(f"{i},{data[i][j][0]},{data[i][j][1]},{data[i][j][2]},{data[i][j][3]}{shared_state.extra_values(i, j)}\n")
+                d = data[i][j]
+                f.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x}{shared_state.extra_values(i, j)}\n")
     f.close()
 
 def _maybe_start_repeat_right():

@@ -79,7 +79,7 @@ def update_counters():
 
 def index_at(frame, y, x):
     """Which detection in `frame` is at (y, x)."""
-    return next(i for i, d in enumerate(shared_state.DATA[frame]) if (d[0], d[1]) == (y, x))
+    return next(i for i, d in enumerate(shared_state.DATA[frame]) if (d.y, d.x) == (y, x))
 
 
 def save_leftover_file():
