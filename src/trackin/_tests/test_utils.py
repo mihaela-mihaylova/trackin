@@ -50,7 +50,7 @@ def test_accept_track_writes_session_file_and_marks_detections_consumed(
 ):
     tmp_path = staged_shared_state
 
-    accept_track()
+    accept_track(shared_state.track)
 
     session_lines = (tmp_path / "session.csv").read_text().splitlines()
     assert session_lines[0] == "tframe,y,x,displ_y,displ_x,track_no"
@@ -72,7 +72,7 @@ def test_accept_track_does_not_duplicate_header_when_session_file_has_content(
     session_path = tmp_path / "session.csv"
     session_path.write_text("tframe,y,x,displ_y,displ_x,track_no\n0,1,2,0,0,1\n")
 
-    accept_track()
+    accept_track(shared_state.track)
 
     session_lines = session_path.read_text().splitlines()
     assert session_lines.count("tframe,y,x,displ_y,displ_x,track_no") == 1
@@ -89,7 +89,7 @@ def test_accept_track_adds_header_when_session_file_exists_but_empty(
     session_path = tmp_path / "session.csv"
     session_path.touch()  # exists on disk, but 0 bytes
 
-    accept_track()
+    accept_track(shared_state.track)
 
     session_lines = session_path.read_text().splitlines()
     assert session_lines[0] == "tframe,y,x,displ_y,displ_x,track_no"
@@ -102,7 +102,7 @@ def test_accept_track_writes_upd_track_file_with_offset_track_id(staged_shared_s
     shared_state.MAX_TRACK_ID = 5
     shared_state.UPD_TRACK_FILE = "upd_tracks.csv"
 
-    accept_track()
+    accept_track(shared_state.track)
 
     # updated_track_id = MAX_TRACK_ID + N_TRACKS = 5 + 1 (accept_track increments
     # N_TRACKS from 0 to 1 before this file is written). Unlike SESSION_FILE, this
@@ -122,7 +122,7 @@ def test_accept_track_no_op_when_track_is_empty_list(staged_shared_state):
     tmp_path = staged_shared_state
     shared_state.track = []
 
-    accept_track()
+    accept_track(shared_state.track)
 
     assert not (tmp_path / "session.csv").exists()
     assert shared_state.N_TRACKS == 0  # must not increment on a no-op
@@ -142,7 +142,7 @@ def test_delete_segment_no_op_when_track_is_empty_list_even_with_stale_num_dets(
     updated_path = tmp_path / "updated.csv"
     updated_path.write_text("tframe,y,x,displ_y,displ_x\n0,99,99,0,0\n")
 
-    delete_segment()
+    delete_segment(shared_state.track, 0)
 
     assert updated_path.read_text() == "tframe,y,x,displ_y,displ_x\n0,99,99,0,0\n"
 
@@ -156,7 +156,7 @@ def test_save_segment_no_op_when_track_is_empty_list(staged_shared_state):
     shared_state.track = []
     shared_state.G = None
 
-    save_segment()  # must not raise
+    save_segment(shared_state.track, 0)  # must not raise
 
     assert shared_state.track == []  # send_track() never ran to reassign it
 
@@ -168,14 +168,14 @@ def test_delete_all_connections_no_op_when_track_is_empty_list(staged_shared_sta
     an IndexError crash on an empty list."""
     shared_state.track = []
 
-    delete_all_connections()  # must not raise
+    delete_all_connections(shared_state.track, 0)  # must not raise
 
 
 def test_accept_track_returns_messages_for_the_user(staged_shared_state):
     """accept_track() returns the messages to show instead of showing them
     itself: "Accepted track.", and here also "No detections left." because
     the accepted track used every detection, so no new track is left."""
-    assert accept_track() == ["Accepted track.", "No detections left."]
+    assert accept_track(shared_state.track) == ["Accepted track.", "No detections left."]
 
 
 def test_actions_without_a_track_return_no_detections_left(staged_shared_state):
@@ -184,8 +184,9 @@ def test_actions_without_a_track_return_no_detections_left(staged_shared_state):
     the plugin to show."""
     shared_state.track = []
 
-    for action in (accept_track, save_segment, delete_segment, delete_all_connections):
-        assert action() == ["No detections left."]
+    assert accept_track(shared_state.track) == ["No detections left."]
+    for action in (save_segment, delete_segment, delete_all_connections):
+        assert action(shared_state.track, 0) == ["No detections left."]
 
 
 def test_utils_does_not_need_napari():

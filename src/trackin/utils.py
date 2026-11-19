@@ -33,8 +33,9 @@ def send_track():
     shared_state.track = track_to_posarray( generate_track( graph ) )
     return ['No detections left.'] if shared_state.track is None else []
 
-def accept_track():
-    track = shared_state.track
+def accept_track(track):
+    """Accept `track`: write it to the session file (and the combined file),
+    and mark its detections as no longer available. Shift-Q."""
     # Also catches track == [] (e.g. right after images are reloaded, before
     # a new CSV is loaded) -- not just None -- so this doesn't silently open
     # the *previous* dataset's SESSION_FILE and write a header into it.
@@ -88,15 +89,16 @@ def accept_track():
     return ['Accepted track.'] + send_track()
 
 # remove all the obsolete edges connected to nodes in a track segment
-def save_segment():
-    """Save the currently defined segment to the graph."""
+def save_segment(track, upto):
+    """Fix the links of `track` from frame 0 up to frame `upto`: each of its
+    detections may then only continue to the next one in the track. W."""
     # e.g. right after images are reloaded, before a new CSV is loaded --
     # without this, the segment-building part below is a harmless no-op
     # (empty slice), but the send_track() call at the end still runs and
     # crashes on shared_state.G being None.
-    if not shared_state.track:
+    if not track:
         return ['No detections left.']
-    s = shared_state.track[0:shared_state.current_index+1]
+    s = track[0:upto+1]
     if len(s) > 1:
         for i in range(len(s) - 1):
             if s[i] == -1 or s[i + 1] == -1:
@@ -117,9 +119,9 @@ def save_segment():
     return send_track()
 
 
-def save_segment_without_update():
-    """Save the currently defined segment to the graph."""
-    s = shared_state.track[0:shared_state.current_index+1]
+def save_segment_without_update(track, upto):
+    """Like save_segment, but without proposing a new track."""
+    s = track[0:upto+1]
     if len(s) > 1:
         for i in range(len(s) - 1):
             if s[i] == -1 or s[i + 1] == -1:
@@ -138,17 +140,18 @@ def save_segment_without_update():
             print(f"Successor nodes of {n1}: {list(shared_state.G.successors(n1))}")
 
 
-def delete_segment():
+def delete_segment(track, upto):
+    """Delete the detections of `track` from frame 0 up to frame `upto`. Shift-Z."""
     segment_to_delete = []
     updated_data_file_path = os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE)
-    # `not shared_state.track` also catches track == [] (e.g. right after
+    # `not track` also catches track == [] (e.g. right after
     # images are reloaded, before a new CSV is loaded); NUM_DETS alone isn't
     # enough there since it can still hold a stale nonzero value from the
     # *previous* dataset, which would otherwise let this function through
     # to truncate-and-overwrite that dataset's UPDATED_DATA_FILE.
-    if not shared_state.NUM_DETS or not shared_state.track:
+    if not shared_state.NUM_DETS or not track:
         return ['No detections left.']
-    for i, p in enumerate(shared_state.track[0:shared_state.current_index+1]):
+    for i, p in enumerate(track[0:upto+1]):
         if p >= 0:
             # the points of the deleted segment are no longer available
             deactivate(i, p)
@@ -171,12 +174,14 @@ def delete_segment():
 
 # deletes all edges from a node, apart from an X- or T-edge, 
 # as well as all obsolete edges to nodes in the segment up until the current detection
-def delete_all_connections():
+def delete_all_connections(track, t):
+    """Remove all links out of `track`'s detection in frame `t` (apart from
+    ending the track there), and end `track` after frame t. X."""
     # e.g. right after images are reloaded, before a new CSV is loaded
-    if not shared_state.track:
+    if not track:
         return ['No detections left.']
-    t1 = shared_state.current_index
-    i1 = shared_state.track[shared_state.current_index]
+    t1 = t
+    i1 = track[t]
     node_name = f'D_{t1}_{i1}'
 
     # Remove all edges coming out of the node, except for the one leading to an X-node
@@ -184,9 +189,9 @@ def delete_all_connections():
         remove_all_successors(shared_state.G, node_name, f'X_{t1+1}')
         print(f'Removed all edges from {node_name}, apart from X_{t1+1}.')
         # assign -1 to all consecutive positions in the track, because all further edges become irrelevant
-        for i in range(t1+1,len(shared_state.track)):
-             shared_state.track[i] = -1
-        save_segment_without_update()
+        for i in range(t1+1,len(track)):
+             track[i] = -1
+        save_segment_without_update(track, t)
     else:
         print('No obsolete edges to remove. This is the very last frame. No incorrect edges will be deleted between the nodes in segment up to that point.')
     return []

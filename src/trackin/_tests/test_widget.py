@@ -782,7 +782,7 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
         generate_graph(shared_state.DATA, max_score=1600, score_func="squared", tracked=False),
     )
 
-    utils.accept_track()
+    utils.accept_track(shared_state.track)
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
@@ -980,7 +980,7 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
         generate_graph(shared_state.DATA, max_score=1600, score_func="squared", tracked=False),
     )
 
-    utils.accept_track()
+    utils.accept_track(shared_state.track)
 
     assert (tmp_path / "combined.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",

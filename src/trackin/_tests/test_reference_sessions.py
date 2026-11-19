@@ -125,8 +125,7 @@ def replay_edits(folder):
     note("load")
 
     # W at frame 2: save the track up to frame 2
-    shared_state.current_index = 2
-    utils.save_segment()
+    utils.save_segment(shared_state.track, 2)
     note("W at frame 2")
 
     # Left-click at frame 3: pick the noise detection instead of the proposed one
@@ -147,22 +146,20 @@ def replay_edits(folder):
     note("add at frame 4")
 
     # X at frame 2: delete the connections after frame 2
-    shared_state.current_index = 2
-    utils.delete_all_connections()
+    utils.delete_all_connections(shared_state.track, 2)
     note("X at frame 2")
 
     # Shift-Q: accept the track
-    utils.accept_track()
+    utils.accept_track(shared_state.track)
     note("accept")
 
     # Shift-Z at frame 3: delete the segment up to frame 3
-    shared_state.current_index = 3
-    utils.delete_segment()
+    utils.delete_segment(shared_state.track, 3)
     note("Shift-Z at frame 3")
 
     # Shift-Q until nothing is left
     while shared_state.track:
-        utils.accept_track()
+        utils.accept_track(shared_state.track)
         note("accept")
 
     return steps
@@ -174,7 +171,7 @@ def replay_accept_all(folder, detections, **settings):
     tracks = []
     while shared_state.track:
         tracks.append(list(shared_state.track))
-        utils.accept_track()
+        utils.accept_track(shared_state.track)
     return tracks
 
 

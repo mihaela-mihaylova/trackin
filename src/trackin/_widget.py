@@ -823,7 +823,7 @@ def add_detection(layer, event):
 
 def acceptTrack(event=None):
     """Accept the current track and move to frame 0."""
-    show_messages(utils.accept_track())
+    show_messages(utils.accept_track(shared_state.track))
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -835,7 +835,7 @@ def acceptTrack(event=None):
      
 def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
-    show_messages(utils.save_segment())
+    show_messages(utils.save_segment(shared_state.track, shared_state.current_index))
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -844,7 +844,7 @@ def saveSegment(event=None):
         container.setFocus()
 
 def deleteSegment(event=None):
-    show_messages(utils.delete_segment())
+    show_messages(utils.delete_segment(shared_state.track, shared_state.current_index))
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -855,7 +855,7 @@ def deleteSegment(event=None):
 
 def deleteAllConnections(event=None):
     """Triggers the function which would delete all outgoing edges (apart from an X- or T-edge)"""
-    show_messages(utils.delete_all_connections())
+    show_messages(utils.delete_all_connections(shared_state.track, shared_state.current_index))
     update_image()
     graph_updated_event()
     # Refocus the main container after handling the event
