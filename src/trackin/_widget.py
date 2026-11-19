@@ -8,7 +8,6 @@ import napari
 import numpy as np
 from napari.utils.events import EventEmitter
 from .shared_state import shared_state, NO_VALUE
-from . import utils
 from .core.detection import Detection
 from datetime import datetime
 from .core.io import (
@@ -39,7 +38,7 @@ data_updated_event = EventEmitter(source=None, type_name='data_updated')
 graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 
 def show_messages(messages):
-    """Show the messages returned by the tracking functions in utils.py
+    """Show the messages returned by the tracking session's actions
     (e.g. 'Accepted track.') as napari notifications."""
     for message in messages:
         show_info(message)
@@ -244,7 +243,7 @@ def load_csv():
         # Build the graph and propose the first track
         if shared_state.G is None:
             show_info("Building graph...")
-        show_messages(utils.track())
+        show_messages(shared_state.propose())
 
         # Compute track lines once when CSV is loaded
         graph_updated_event()
@@ -697,11 +696,11 @@ def delete_det_by_key(layer):
     layer.data[clicked_index] = [-1000000, -1000000]
 
     node_name = f'D_{shared_state.current_index}_{clicked_index}'
-    utils.delete_detection(shared_state.current_index, clicked_index)
+    shared_state.delete_detection(shared_state.current_index, clicked_index)
 
     # Update the track state
     shared_state.track[shared_state.current_index] = -1
-    show_messages(utils.track())  # propose a new track without the deleted detection
+    show_messages(shared_state.propose())  # propose a new track without the deleted detection
 
     # Refresh the layer to update the visual display
     layer.refresh()
@@ -727,7 +726,7 @@ def delete_det_by_mouse(layer, event):
     layer.data[clicked_index] = [-1000000, -1000000]
 
     node_name = f'D_{shared_state.current_index}_{clicked_index}'
-    utils.delete_detection(shared_state.current_index, clicked_index)
+    shared_state.delete_detection(shared_state.current_index, clicked_index)
 
     layer.refresh()
     update_image()
@@ -802,7 +801,7 @@ def add_detection(layer, event):
             layer.border_width_is_relative = False  # Ensure the border width is absolute
 
             # Add the new detection to the tracking data and the graph
-            utils.add_detection(shared_state.current_index, int(data_coords[0]), int(data_coords[1]))
+            shared_state.add_detection(shared_state.current_index, int(data_coords[0]), int(data_coords[1]))
 
             # Refresh the layer to display the new point
             layer.refresh()
@@ -823,7 +822,7 @@ def add_detection(layer, event):
 
 def acceptTrack(event=None):
     """Accept the current track and move to frame 0."""
-    show_messages(utils.accept_track(shared_state.track))
+    show_messages(shared_state.accept_track(shared_state.track))
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -835,7 +834,7 @@ def acceptTrack(event=None):
      
 def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
-    show_messages(utils.save_segment(shared_state.track, shared_state.current_index))
+    show_messages(shared_state.save_segment(shared_state.track, shared_state.current_index))
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -844,7 +843,7 @@ def saveSegment(event=None):
         container.setFocus()
 
 def deleteSegment(event=None):
-    show_messages(utils.delete_segment(shared_state.track, shared_state.current_index))
+    show_messages(shared_state.delete_segment(shared_state.track, shared_state.current_index))
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -855,7 +854,7 @@ def deleteSegment(event=None):
 
 def deleteAllConnections(event=None):
     """Triggers the function which would delete all outgoing edges (apart from an X- or T-edge)"""
-    show_messages(utils.delete_all_connections(shared_state.track, shared_state.current_index))
+    show_messages(shared_state.delete_all_connections(shared_state.track, shared_state.current_index))
     update_image()
     graph_updated_event()
     # Refocus the main container after handling the event
@@ -1325,7 +1324,7 @@ def update_labels():
 
     if shared_state.G is not None:
         # Compute the number of detections and connections
-        counts = utils.stats()
+        counts = shared_state.stats()
         shared_state.NUM_DETS = counts["detections"]
         shared_state.NUM_CONN = counts["connections"]
 

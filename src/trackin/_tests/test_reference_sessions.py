@@ -18,7 +18,6 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from trackin import utils
 from trackin._widget import generate_positions_list, write_updated_detections_to_file
 from trackin.core.io import TRACKING_COLUMNS, check_and_add_displ_cols, read_detections_csv
 from trackin.shared_state import SharedState, shared_state
@@ -66,7 +65,7 @@ def load(detections, folder, max_score=1600, score_func="squared"):
     shared_state.SESSION_FILE = "session.csv"
     shared_state.UPDATED_DATA_FILE = "leftover.csv"
     shared_state.DATA = generate_positions_list(df, str(folder), n_frames=N_FRAMES)
-    utils.track()
+    shared_state.propose()
 
 
 def index_at(frame, y, x):
@@ -83,16 +82,16 @@ def save_leftover_file():
 
 def delete_with_d(frame):
     """D: delete the track's detection in `frame`, and propose again."""
-    utils.delete_detection(frame, shared_state.track[frame])
+    shared_state.delete_detection(frame, shared_state.track[frame])
     shared_state.track[frame] = -1
-    utils.track()
+    shared_state.propose()
     save_leftover_file()
 
 
 def delete_with_right_click(frame, index):
     """Right-click on a detection that is not on the track: delete it,
     without proposing again."""
-    utils.delete_detection(frame, index)
+    shared_state.delete_detection(frame, index)
     save_leftover_file()
 
 
@@ -104,7 +103,7 @@ def replay_edits(folder):
     steps = []
 
     def note(action):
-        counts = utils.stats()  # the "Detections" and "Connections" shown in the panel
+        counts = shared_state.stats()  # the "Detections" and "Connections" shown in the panel
         steps.append({
             "action": action,
             "track": list(shared_state.track or []),
@@ -117,7 +116,7 @@ def replay_edits(folder):
     note("load")
 
     # W at frame 2: save the track up to frame 2
-    utils.save_segment(shared_state.track, 2)
+    shared_state.save_segment(shared_state.track, 2)
     note("W at frame 2")
 
     # Left-click at frame 3: pick the noise detection instead of the proposed one
@@ -133,25 +132,25 @@ def replay_edits(folder):
     note("right-click C at frame 2")
 
     # Shift-click at frame 4: add a detection by hand at (40, 40)
-    utils.add_detection(4, 40, 40)
+    shared_state.add_detection(4, 40, 40)
     save_leftover_file()
     note("add at frame 4")
 
     # X at frame 2: delete the connections after frame 2
-    utils.delete_all_connections(shared_state.track, 2)
+    shared_state.delete_all_connections(shared_state.track, 2)
     note("X at frame 2")
 
     # Shift-Q: accept the track
-    utils.accept_track(shared_state.track)
+    shared_state.accept_track(shared_state.track)
     note("accept")
 
     # Shift-Z at frame 3: delete the segment up to frame 3
-    utils.delete_segment(shared_state.track, 3)
+    shared_state.delete_segment(shared_state.track, 3)
     note("Shift-Z at frame 3")
 
     # Shift-Q until nothing is left
     while shared_state.track:
-        utils.accept_track(shared_state.track)
+        shared_state.accept_track(shared_state.track)
         note("accept")
 
     return steps
@@ -163,7 +162,7 @@ def replay_accept_all(folder, detections, **settings):
     tracks = []
     while shared_state.track:
         tracks.append(list(shared_state.track))
-        utils.accept_track(shared_state.track)
+        shared_state.accept_track(shared_state.track)
     return tracks
 
 

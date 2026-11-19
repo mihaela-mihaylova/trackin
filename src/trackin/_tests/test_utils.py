@@ -3,7 +3,6 @@ import pytest
 from trackin.core.detection import Detection
 from trackin.shared_state import shared_state
 from trackin.core.tracking import generate_graph
-from trackin.utils import accept_track, delete_all_connections, delete_segment, save_segment
 
 SHARED_STATE_FIELDS = [
     "DATA",
@@ -50,7 +49,7 @@ def test_accept_track_writes_session_file_and_marks_detections_consumed(
 ):
     tmp_path = staged_shared_state
 
-    accept_track(shared_state.track)
+    shared_state.accept_track(shared_state.track)
 
     session_lines = (tmp_path / "session.csv").read_text().splitlines()
     assert session_lines[0] == "tframe,y,x,displ_y,displ_x,track_no"
@@ -72,7 +71,7 @@ def test_accept_track_does_not_duplicate_header_when_session_file_has_content(
     session_path = tmp_path / "session.csv"
     session_path.write_text("tframe,y,x,displ_y,displ_x,track_no\n0,1,2,0,0,1\n")
 
-    accept_track(shared_state.track)
+    shared_state.accept_track(shared_state.track)
 
     session_lines = session_path.read_text().splitlines()
     assert session_lines.count("tframe,y,x,displ_y,displ_x,track_no") == 1
@@ -89,7 +88,7 @@ def test_accept_track_adds_header_when_session_file_exists_but_empty(
     session_path = tmp_path / "session.csv"
     session_path.touch()  # exists on disk, but 0 bytes
 
-    accept_track(shared_state.track)
+    shared_state.accept_track(shared_state.track)
 
     session_lines = session_path.read_text().splitlines()
     assert session_lines[0] == "tframe,y,x,displ_y,displ_x,track_no"
@@ -102,7 +101,7 @@ def test_accept_track_writes_upd_track_file_with_offset_track_id(staged_shared_s
     shared_state.MAX_TRACK_ID = 5
     shared_state.UPD_TRACK_FILE = "upd_tracks.csv"
 
-    accept_track(shared_state.track)
+    shared_state.accept_track(shared_state.track)
 
     # updated_track_id = MAX_TRACK_ID + N_TRACKS = 5 + 1 (accept_track increments
     # N_TRACKS from 0 to 1 before this file is written). Unlike SESSION_FILE, this
@@ -122,7 +121,7 @@ def test_accept_track_no_op_when_track_is_empty_list(staged_shared_state):
     tmp_path = staged_shared_state
     shared_state.track = []
 
-    accept_track(shared_state.track)
+    shared_state.accept_track(shared_state.track)
 
     assert not (tmp_path / "session.csv").exists()
     assert shared_state.N_TRACKS == 0  # must not increment on a no-op
@@ -133,7 +132,7 @@ def test_delete_segment_no_op_when_track_is_empty_list_even_with_stale_num_dets(
 ):
     """Right after images are reloaded there is no track, while the panel's
     counter (NUM_DETS) can still hold a value from the *previous* dataset.
-    delete_segment() must do nothing then, and not truncate-and-overwrite
+    shared_state.delete_segment() must do nothing then, and not truncate-and-overwrite
     that dataset's UPDATED_DATA_FILE."""
     tmp_path = staged_shared_state
     shared_state.track = []
@@ -142,7 +141,7 @@ def test_delete_segment_no_op_when_track_is_empty_list_even_with_stale_num_dets(
     updated_path = tmp_path / "updated.csv"
     updated_path.write_text("tframe,y,x,displ_y,displ_x\n0,99,99,0,0\n")
 
-    delete_segment(shared_state.track, 0)
+    shared_state.delete_segment(shared_state.track, 0)
 
     assert updated_path.read_text() == "tframe,y,x,displ_y,displ_x\n0,99,99,0,0\n"
 
@@ -151,12 +150,12 @@ def test_save_segment_no_op_when_track_is_empty_list(staged_shared_state):
     """Right after images are reloaded (before a new CSV is loaded),
     shared_state.track is [] and shared_state.G is None. The segment-
     building part is a harmless no-op on an empty track either way, but
-    save_segment() unconditionally ended with send_track(), which calls
+    shared_state.save_segment() unconditionally ended with send_track(), which calls
     .copy() on shared_state.G -- an AttributeError crash when G is None."""
     shared_state.track = []
     shared_state.G = None
 
-    save_segment(shared_state.track, 0)  # must not raise
+    shared_state.save_segment(shared_state.track, 0)  # must not raise
 
     assert shared_state.track == []  # send_track() never ran to reassign it
 
@@ -168,14 +167,14 @@ def test_delete_all_connections_no_op_when_track_is_empty_list(staged_shared_sta
     an IndexError crash on an empty list."""
     shared_state.track = []
 
-    delete_all_connections(shared_state.track, 0)  # must not raise
+    shared_state.delete_all_connections(shared_state.track, 0)  # must not raise
 
 
 def test_accept_track_returns_messages_for_the_user(staged_shared_state):
     """accept_track() returns the messages to show instead of showing them
     itself: "Accepted track.", and here also "No detections left." because
     the accepted track used every detection, so no new track is left."""
-    assert accept_track(shared_state.track) == ["Accepted track.", "No detections left."]
+    assert shared_state.accept_track(shared_state.track) == ["Accepted track.", "No detections left."]
 
 
 def test_actions_without_a_track_return_no_detections_left(staged_shared_state):
@@ -184,13 +183,13 @@ def test_actions_without_a_track_return_no_detections_left(staged_shared_state):
     the plugin to show."""
     shared_state.track = []
 
-    assert accept_track(shared_state.track) == ["No detections left."]
-    for action in (save_segment, delete_segment, delete_all_connections):
+    assert shared_state.accept_track(shared_state.track) == ["No detections left."]
+    for action in (shared_state.save_segment, shared_state.delete_segment, shared_state.delete_all_connections):
         assert action(shared_state.track, 0) == ["No detections left."]
 
 
-def test_utils_does_not_need_napari():
-    """utils.py must load without napari, so the tracking steps can be used
+def test_session_does_not_need_napari():
+    """The tracking session must load without napari, so it can be used
     outside the plugin. Checked in a separate Python process, since napari
     is already loaded in this one by the other tests."""
     import subprocess
@@ -198,7 +197,7 @@ def test_utils_does_not_need_napari():
 
     result = subprocess.run(
         [sys.executable, "-c",
-         "import sys, trackin.utils; "
+         "import sys, trackin.core.session; "
          "print(any(m.startswith('napari') for m in sys.modules))"],
         capture_output=True, text=True, check=True,
     )
@@ -213,7 +212,7 @@ def test_delete_segment_works_without_the_panel_counting(staged_shared_state):
     tmp_path = staged_shared_state
     shared_state.NUM_DETS = None  # the panel hasn't counted anything
 
-    assert delete_segment(shared_state.track, 1) == ["No detections left."]  # nothing left to propose
+    assert shared_state.delete_segment(shared_state.track, 1) == ["No detections left."]  # nothing left to propose
     assert shared_state.DATA[0][0].active is False  # both detections deleted
     assert shared_state.DATA[1][0].active is False
     assert (tmp_path / "updated.csv").read_text().splitlines() == ["tframe,y,x,displ_y,displ_x"]

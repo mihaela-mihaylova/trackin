@@ -765,8 +765,6 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     """Accepting a track writes its detections' extra values into the
     session file (after track_no), and the remaining detections' extra values
     into the leftover file. A value containing a comma is put in quotes."""
-    from trackin import utils
-
     monkeypatch.setattr(shared_state, "TRACKED", False)
     monkeypatch.setattr(shared_state, "DATA", [[Detection(10, 10), Detection(50, 50)], [Detection(12, 12)]])
     monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
@@ -782,7 +780,7 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
         generate_graph(shared_state.DATA, max_score=1600, score_func="squared", tracked=False),
     )
 
-    utils.accept_track(shared_state.track)
+    shared_state.accept_track(shared_state.track)
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
@@ -957,8 +955,6 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
     file in that file's column order. Here the combined file has a column
     ("quality") that only the loaded track file had, so the new rows get -1
     there; the session file keeps only the detections file's columns."""
-    from trackin import utils
-
     (tmp_path / "combined.csv").write_text(
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note\n"
         "0,5,5,0,0,3,4,good,-1\n"
@@ -980,7 +976,7 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
         generate_graph(shared_state.DATA, max_score=1600, score_func="squared", tracked=False),
     )
 
-    utils.accept_track(shared_state.track)
+    shared_state.accept_track(shared_state.track)
 
     assert (tmp_path / "combined.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
