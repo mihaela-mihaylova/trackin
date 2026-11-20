@@ -38,6 +38,13 @@ ZOOM_STEP = 1.1  # multiplicative zoom change per wheel notch
 data_updated_event = EventEmitter(source=None, type_name='data_updated')
 graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 
+def use_proposed_track():
+    """The track being edited becomes a copy of the session's newly
+    proposed track (None when no track is left). Clicks then change this
+    copy, not the session's proposal."""
+    proposal = shared_state.session.track
+    shared_state.track = None if proposal is None else list(proposal)
+
 def show_messages(messages):
     """Show the messages returned by the tracking session's actions
     (e.g. 'Accepted track.') as napari notifications."""
@@ -245,6 +252,7 @@ def load_csv():
         if shared_state.session.G is None:
             show_info("Building graph...")
         show_messages(shared_state.session.propose())
+        use_proposed_track()
 
         # Compute track lines once when CSV is loaded
         graph_updated_event()
@@ -529,7 +537,7 @@ def overlay_points(frame_data):
     # For a frame without detections this is an empty array with no rows,
     # which empties the layers below.
     points = np.array([frame_data['y'], frame_data['x']]).T
-    curr_track = shared_state.session.track
+    curr_track = shared_state.track
     if curr_track is None:
         show_info('No detections left.')
         return
@@ -600,8 +608,8 @@ def overlay_points(frame_data):
 
     # --- Construct and update track lines ---
     track_points = []
-    for t in range(len(shared_state.session.track)):
-        track_idx = shared_state.session.track[t]
+    for t in range(len(shared_state.track)):
+        track_idx = shared_state.track[t]
         if track_idx != -1:
             d = shared_state.session.DATA[t][track_idx]
             y, x = d.y, d.x
@@ -633,8 +641,8 @@ def overlay_points(frame_data):
 def compute_track_lines():
     """Compute line segments connecting consecutive points in the track."""
     track_points = []
-    for t in range(len(shared_state.session.track)):
-        track_idx = shared_state.session.track[t]
+    for t in range(len(shared_state.track)):
+        track_idx = shared_state.track[t]
         if track_idx is not None and track_idx != -1:
             # Ensure track index is within bounds of shared_state.session.DATA[t]
             if 0 <= track_idx < len(shared_state.session.DATA[t]):
@@ -664,7 +672,7 @@ def delete_detection(layer, event=None, use_key=False):
         if clicked_index is None:
             return  # No valid point was clicked, exit
     else:  # Called using the 'D' key
-        curr_track = shared_state.session.track
+        curr_track = shared_state.track
         # e.g. right after images are reloaded, before a new CSV is loaded
         if not curr_track:
             print("No detections loaded to delete with 'D' key.")
@@ -677,7 +685,7 @@ def delete_detection(layer, event=None, use_key=False):
 
     # If a valid point is found, determine if it's part of a track or a standard detection
     if clicked_index is not None:
-        curr_track = shared_state.session.track
+        curr_track = shared_state.track
         if curr_track[shared_state.current_index] == clicked_index:
             # Call the function for deleting track detection
             delete_det_by_key(layer)
@@ -700,8 +708,9 @@ def delete_det_by_key(layer):
     shared_state.session.delete_detection(shared_state.current_index, clicked_index)
 
     # Update the track state
-    shared_state.session.track[shared_state.current_index] = -1
+    shared_state.track[shared_state.current_index] = -1
     show_messages(shared_state.session.propose())  # propose a new track without the deleted detection
+    use_proposed_track()
 
     # Refresh the layer to update the visual display
     layer.refresh()
@@ -757,7 +766,7 @@ def on_click(layer, event):
 
         if clicked_index is not None and clicked_index >= 0:
             # If a valid point was clicked, update the track and go to the next image
-            shared_state.session.track[shared_state.current_index] = clicked_index
+            shared_state.track[shared_state.current_index] = clicked_index
             next_image()
         else:
             print("Clicked outside of any detection point.")
@@ -792,7 +801,7 @@ def add_detection(layer, event):
             new_size_array = np.full((len(layer.data),), point_size)
 
             # Ensure the size of the track detection in the current frame is changed to 30
-            curr_track = shared_state.session.track
+            curr_track = shared_state.track
             if curr_track[shared_state.current_index] != -1:
                 track_index = curr_track[shared_state.current_index]  # Get the correct track index
                 new_size_array[track_index] = 30  # Set track point size to 30
@@ -823,7 +832,8 @@ def add_detection(layer, event):
 
 def acceptTrack(event=None):
     """Accept the current track and move to frame 0."""
-    show_messages(shared_state.session.accept_track(shared_state.session.track))
+    show_messages(shared_state.session.accept_track(shared_state.track))
+    use_proposed_track()
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -835,7 +845,8 @@ def acceptTrack(event=None):
      
 def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
-    show_messages(shared_state.session.save_segment(shared_state.session.track, shared_state.current_index))
+    show_messages(shared_state.session.save_segment(shared_state.track, shared_state.current_index))
+    use_proposed_track()
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -844,7 +855,8 @@ def saveSegment(event=None):
         container.setFocus()
 
 def deleteSegment(event=None):
-    show_messages(shared_state.session.delete_segment(shared_state.session.track, shared_state.current_index))
+    show_messages(shared_state.session.delete_segment(shared_state.track, shared_state.current_index))
+    use_proposed_track()
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -855,7 +867,7 @@ def deleteSegment(event=None):
 
 def deleteAllConnections(event=None):
     """Triggers the function which would delete all outgoing edges (apart from an X- or T-edge)"""
-    show_messages(shared_state.session.delete_all_connections(shared_state.session.track, shared_state.current_index))
+    show_messages(shared_state.session.delete_all_connections(shared_state.track, shared_state.current_index))
     update_image()
     graph_updated_event()
     # Refocus the main container after handling the event
@@ -1209,6 +1221,7 @@ def clear_detections_and_tracks():
     # file names make any stray write fail loudly (e.g. IsADirectoryError)
     # rather than silently writing into the *previous* dataset's files.
     shared_state.session = Session()
+    shared_state.track = []
     shared_state.track_lines = None
     shared_state.NUM_DETS = None
     shared_state.NUM_CONN = None

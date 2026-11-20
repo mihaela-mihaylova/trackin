@@ -254,7 +254,7 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
         # Seed state as if a full session (images, detections, and a loaded
         # track file) had already happened for the *previous* dataset
         shared_state.session.DATA = [[(1, 2, 0, 0)]]
-        shared_state.session.track = [0]
+        shared_state.track = [0]
         shared_state.track_lines = np.array([[[1, 2], [3, 4]]])
         shared_state.session.NUM_DET_PER_FRAME = [1]
         shared_state.session.TRACKED = True
@@ -270,7 +270,7 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
         widget.clear_detections_and_tracks()
 
         assert shared_state.session.DATA == []
-        assert shared_state.session.track == []
+        assert shared_state.track == []
         assert shared_state.track_lines is None
         assert shared_state.session.NUM_DET_PER_FRAME == []
         assert shared_state.session.TRACKED is False
@@ -309,15 +309,15 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
 
 def test_delete_detection_d_key_no_op_when_track_is_empty_list():
     """Right after images are reloaded (before a new CSV is loaded),
-    shared_state.session.track is [] -- the 'D' key path indexed into it with
+    shared_state.track is [] -- the 'D' key path indexed into it with
     curr_track[shared_state.current_index] unconditionally, an IndexError
     crash on an empty list."""
-    original_track = shared_state.session.track
+    original_track = shared_state.track
     try:
-        shared_state.session.track = []
+        shared_state.track = []
         widget.delete_detection(None, use_key=True)  # must not raise
     finally:
-        shared_state.session.track = original_track
+        shared_state.track = original_track
 
 
 class _FakeLayer:
@@ -341,7 +341,7 @@ def test_delete_det_by_key_writes_updated_detections_file(tmp_path):
         shared_state.current_index = 0
         shared_state.session.DATA = [[Detection(10, 20), Detection(30, 40)]]
         shared_state.session.TRACKED = False
-        shared_state.session.track = [-1]
+        shared_state.track = [-1]
         shared_state.session.csv_folder_to_save = str(tmp_path)
         shared_state.session.UPDATED_DATA_FILE = "updated.csv"
         shared_state.session.G = generate_graph(
@@ -365,7 +365,7 @@ def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
     view goes back to frame 0, as after accepting or saving a segment."""
     monkeypatch.setattr(shared_state.session, "DATA", [[Detection(10, 20)], [Detection(12, 22), Detection(30, 40)]])
     monkeypatch.setattr(shared_state.session, "TRACKED", False)
-    monkeypatch.setattr(shared_state.session, "track", [0, 0])
+    monkeypatch.setattr(shared_state, "track", [0, 0])
     monkeypatch.setattr(shared_state, "current_index", 1)  # on frame 1
     monkeypatch.setattr(shared_state.session, "csv_folder_to_save", str(tmp_path))
     monkeypatch.setattr(shared_state.session, "UPDATED_DATA_FILE", "updated.csv")
@@ -470,7 +470,7 @@ def test_update_image_draws_detections_of_file_without_track_no(monkeypatch):
     monkeypatch.setattr(widget, "csv_data", pd.DataFrame())  # only needs to be "loaded"
     monkeypatch.setattr(shared_state.session, "TRACKED", False)
     monkeypatch.setattr(shared_state.session, "DATA", [[Detection(10, 10), Detection(15, 5)]])
-    monkeypatch.setattr(shared_state.session, "track", [0])
+    monkeypatch.setattr(shared_state, "track", [0])
     monkeypatch.setattr(shared_state, "current_index", 0)
 
     widget.update_image()
@@ -489,7 +489,7 @@ def test_update_image_hides_deleted_detections(monkeypatch):
     monkeypatch.setattr(widget, "csv_data", pd.DataFrame())  # only needs to be "loaded"
     monkeypatch.setattr(shared_state.session, "TRACKED", False)
     monkeypatch.setattr(shared_state.session, "DATA", [[Detection(10, 10), Detection(15, 5, active=False)]])
-    monkeypatch.setattr(shared_state.session, "track", [0])
+    monkeypatch.setattr(shared_state, "track", [0])
     monkeypatch.setattr(shared_state, "current_index", 0)
 
     widget.update_image()
@@ -515,7 +515,7 @@ def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     monkeypatch.setattr(shared_state.session, "TRACKED", False)
     # frame 0 has one detection, which is on the current track; frame 1 has none
     monkeypatch.setattr(shared_state.session, "DATA", [[Detection(10, 10)], []])
-    monkeypatch.setattr(shared_state.session, "track", [0, -1])
+    monkeypatch.setattr(shared_state, "track", [0, -1])
 
     monkeypatch.setattr(shared_state, "current_index", 0)
     widget.update_image()
@@ -550,7 +550,7 @@ def _seed_open_dataset(monkeypatch):
     monkeypatch.setattr(widget, "images_loaded", True)
     monkeypatch.setattr(widget, "csv_loaded", True)
     monkeypatch.setattr(shared_state.session, "DATA", [[(1, 2, 0, 0)]])
-    monkeypatch.setattr(shared_state.session, "track", [0])
+    monkeypatch.setattr(shared_state, "track", [0])
     monkeypatch.setattr(shared_state.session, "SESSION_FILE", OPEN_SESSION_FILE)
 
 
@@ -572,7 +572,7 @@ def _assert_open_dataset_untouched():
     assert widget.images == ["open image"]
     assert widget.image_files == ["0.png"]
     assert shared_state.session.DATA == [[(1, 2, 0, 0)]]
-    assert shared_state.session.track == [0]
+    assert shared_state.track == [0]
     assert shared_state.session.SESSION_FILE == OPEN_SESSION_FILE
 
 
@@ -647,7 +647,7 @@ def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_pa
     assert "only images for frames 0 to 1" in text
     assert widget.images == ["image 0", "image 1"]
     assert shared_state.session.DATA == [[(1, 2, 0, 0)]]
-    assert shared_state.session.track == [0]
+    assert shared_state.track == [0]
     assert shared_state.session.SESSION_FILE == OPEN_SESSION_FILE
 
 
@@ -725,7 +725,7 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(shared_state.session, "DATA", [[Detection(10, 10), Detection(50, 50)], [Detection(12, 12)]])
     monkeypatch.setattr(shared_state.session, "EXTRA_COLUMNS", ["label", "note"])
     monkeypatch.setattr(shared_state.session, "EXTRA", [[(7, "cell_A"), (8, "x, y")], [(9, float("nan"))]])
-    monkeypatch.setattr(shared_state.session, "track", [0, 0])  # first detection of frame 0, then of frame 1
+    monkeypatch.setattr(shared_state, "track", [0, 0])  # first detection of frame 0, then of frame 1
     monkeypatch.setattr(shared_state.session, "N_TRACKS", 0)
     monkeypatch.setattr(shared_state.session, "MAX_TRACK_ID", None)
     monkeypatch.setattr(shared_state.session, "csv_folder_to_save", str(tmp_path))
@@ -736,7 +736,7 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
         generate_graph(shared_state.session.DATA, max_score=1600, score_func="squared", tracked=False),
     )
 
-    shared_state.session.accept_track(shared_state.session.track)
+    shared_state.session.accept_track(shared_state.track)
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
@@ -758,7 +758,7 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(shared_state.session, "EXTRA_COLUMNS", ["label"])
     monkeypatch.setattr(shared_state.session, "EXTRA", [[(7,)], [(8,)]])
     monkeypatch.setattr(shared_state.session, "NUM_DET_PER_FRAME", [1, 1])
-    monkeypatch.setattr(shared_state.session, "track", [0, 0])
+    monkeypatch.setattr(shared_state, "track", [0, 0])
     monkeypatch.setattr(shared_state, "current_index", 0)
     monkeypatch.setattr(shared_state.session, "csv_folder_to_save", str(tmp_path))
     monkeypatch.setattr(shared_state.session, "UPDATED_DATA_FILE", "leftover.csv")
@@ -920,7 +920,7 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
     monkeypatch.setattr(shared_state.session, "EXTRA_COLUMNS", ["label", "note"])
     monkeypatch.setattr(shared_state.session, "EXTRA", [[(7, "cell_A")], [(8, "cell_A")]])
     monkeypatch.setattr(shared_state.session, "COMBINED_EXTRA_COLUMNS", ["label", "quality", "note"])
-    monkeypatch.setattr(shared_state.session, "track", [0, 0])
+    monkeypatch.setattr(shared_state, "track", [0, 0])
     monkeypatch.setattr(shared_state.session, "N_TRACKS", 0)
     monkeypatch.setattr(shared_state.session, "MAX_TRACK_ID", 3)
     monkeypatch.setattr(shared_state.session, "csv_folder_to_save", str(tmp_path))
@@ -932,7 +932,7 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
         generate_graph(shared_state.session.DATA, max_score=1600, score_func="squared", tracked=False),
     )
 
-    shared_state.session.accept_track(shared_state.session.track)
+    shared_state.session.accept_track(shared_state.track)
 
     assert (tmp_path / "combined.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
@@ -1008,3 +1008,19 @@ def test_read_detections_csv_refuses_file_separated_by_semicolons(tmp_path):
 
     assert "but it has no tframe, y, x" in str(error.value)
     assert "Its columns are: tframe;y;x." in str(error.value)
+
+
+def test_click_changes_the_edited_track_not_the_proposal(monkeypatch):
+    """The track being edited is a copy of the session's proposal: left-
+    clicking a detection changes that copy (which W, Shift-Z, X and accept
+    are given), while the session's proposal stays as the session made it."""
+    monkeypatch.setattr(shared_state.session, "track", [0, 0])  # the proposal
+    widget.use_proposed_track()
+    monkeypatch.setattr(shared_state, "current_index", 1)
+    monkeypatch.setattr(widget, "new_point_added", False)
+    layer = SimpleNamespace(get_value=lambda position, world: 1)  # the click hits detection 1
+
+    widget.on_click(layer, SimpleNamespace(button=1, position=(5, 5)))
+
+    assert shared_state.track == [0, 1]
+    assert shared_state.session.track == [0, 0]

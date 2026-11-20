@@ -18,7 +18,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from trackin._widget import generate_positions_list, write_updated_detections_to_file
+from trackin._widget import generate_positions_list, use_proposed_track, write_updated_detections_to_file
 from trackin.core.io import TRACKING_COLUMNS, check_and_add_displ_cols, read_detections_csv
 from trackin.shared_state import SharedState, shared_state
 
@@ -66,6 +66,7 @@ def load(detections, folder, max_score=1600, score_func="squared"):
     shared_state.session.UPDATED_DATA_FILE = "leftover.csv"
     shared_state.session.DATA = generate_positions_list(df, str(folder), n_frames=N_FRAMES)
     shared_state.session.propose()
+    use_proposed_track()
 
 
 def index_at(frame, y, x):
@@ -82,9 +83,10 @@ def save_leftover_file():
 
 def delete_with_d(frame):
     """D: delete the track's detection in `frame`, and propose again."""
-    shared_state.session.delete_detection(frame, shared_state.session.track[frame])
-    shared_state.session.track[frame] = -1
+    shared_state.session.delete_detection(frame, shared_state.track[frame])
+    shared_state.track[frame] = -1
     shared_state.session.propose()
+    use_proposed_track()
     save_leftover_file()
 
 
@@ -106,7 +108,7 @@ def replay_edits(folder):
         counts = shared_state.session.stats()  # the "Detections" and "Connections" shown in the panel
         steps.append({
             "action": action,
-            "track": list(shared_state.session.track or []),
+            "track": list(shared_state.track or []),
             "detections": counts["detections"],
             "connections": counts["connections"],
         })
@@ -116,11 +118,12 @@ def replay_edits(folder):
     note("load")
 
     # W at frame 2: save the track up to frame 2
-    shared_state.session.save_segment(shared_state.session.track, 2)
+    shared_state.session.save_segment(shared_state.track, 2)
+    use_proposed_track()
     note("W at frame 2")
 
     # Left-click at frame 3: pick the noise detection instead of the proposed one
-    shared_state.session.track[3] = index_at(3, 35, 85)
+    shared_state.track[3] = index_at(3, 35, 85)
     note("click noise at frame 3")
 
     # D at frame 3: delete it again, and get a new proposal
@@ -137,20 +140,23 @@ def replay_edits(folder):
     note("add at frame 4")
 
     # X at frame 2: delete the connections after frame 2
-    shared_state.session.delete_all_connections(shared_state.session.track, 2)
+    shared_state.session.delete_all_connections(shared_state.track, 2)
     note("X at frame 2")
 
     # Shift-Q: accept the track
-    shared_state.session.accept_track(shared_state.session.track)
+    shared_state.session.accept_track(shared_state.track)
+    use_proposed_track()
     note("accept")
 
     # Shift-Z at frame 3: delete the segment up to frame 3
-    shared_state.session.delete_segment(shared_state.session.track, 3)
+    shared_state.session.delete_segment(shared_state.track, 3)
+    use_proposed_track()
     note("Shift-Z at frame 3")
 
     # Shift-Q until nothing is left
-    while shared_state.session.track:
-        shared_state.session.accept_track(shared_state.session.track)
+    while shared_state.track:
+        shared_state.session.accept_track(shared_state.track)
+        use_proposed_track()
         note("accept")
 
     return steps
@@ -160,9 +166,10 @@ def replay_accept_all(folder, detections, **settings):
     """Load, then accept until nothing is left: the tracking on its own."""
     load(detections, folder, **settings)
     tracks = []
-    while shared_state.session.track:
-        tracks.append(list(shared_state.session.track))
-        shared_state.session.accept_track(shared_state.session.track)
+    while shared_state.track:
+        tracks.append(list(shared_state.track))
+        shared_state.session.accept_track(shared_state.track)
+        use_proposed_track()
     return tracks
 
 
