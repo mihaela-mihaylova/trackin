@@ -8,6 +8,7 @@ import napari
 import numpy as np
 from napari.utils.events import EventEmitter
 from .shared_state import shared_state, NO_VALUE
+from .core.session import Session
 from .core.detection import Detection
 from datetime import datetime
 from .core.io import (
@@ -103,30 +104,30 @@ def generate_positions_list(df, folder_to_save, n_frames=0):
     the wrong images. The list covers at least n_frames frames (the number of
     loaded images), so frames after the last detection exist too.
 
-    The values of the extra columns (shared_state.EXTRA_COLUMNS) are stored
-    in shared_state.EXTRA, in the same places as the positions in DATA."""
+    The values of the extra columns (shared_state.session.EXTRA_COLUMNS) are stored
+    in shared_state.session.EXTRA, in the same places as the positions in DATA."""
     num_frames = max(n_frames, int(df['tframe'].max()) + 1 if len(df) else 0)
     positions_per_frame = [[] for _ in range(num_frames)]
     extras_per_frame = [[] for _ in range(num_frames)]
     # Read column by column rather than row by row, so each column keeps its
     # own type: a row mixes whole numbers with e.g. text or decimals in the
     # extra columns, and would otherwise turn all of them into one type
-    columns = ['y', 'x', 'displ_y', 'displ_x'] + (['track_no'] if shared_state.TRACKED else [])
+    columns = ['y', 'x', 'displ_y', 'displ_x'] + (['track_no'] if shared_state.session.TRACKED else [])
     positions = zip(*(df[c].tolist() for c in columns))
-    extras = zip(*(df[c].tolist() for c in shared_state.EXTRA_COLUMNS)) if shared_state.EXTRA_COLUMNS else ([()] * len(df))
+    extras = zip(*(df[c].tolist() for c in shared_state.session.EXTRA_COLUMNS)) if shared_state.session.EXTRA_COLUMNS else ([()] * len(df))
     for t, position, extra in zip(df['tframe'].tolist(), positions, extras):
         positions_per_frame[int(t)].append(Detection(*position))
         extras_per_frame[int(t)].append(tuple(extra))
 
     for positions in positions_per_frame:
-        shared_state.DATA.append(positions)
-    shared_state.EXTRA = extras_per_frame
+        shared_state.session.DATA.append(positions)
+    shared_state.session.EXTRA = extras_per_frame
 
     # initialize the session.csv file, where tracks are saved
-    with open(os.path.join(folder_to_save, f"{shared_state.SESSION_FILE}"), "w") as f:
+    with open(os.path.join(folder_to_save, f"{shared_state.session.SESSION_FILE}"), "w") as f:
         f.write("")
-    shared_state.NUM_DET_PER_FRAME = [len(sublist) for sublist in shared_state.DATA]
-    return shared_state.DATA 
+    shared_state.session.NUM_DET_PER_FRAME = [len(sublist) for sublist in shared_state.session.DATA]
+    return shared_state.session.DATA 
 
 def load_images_from_folder(folder_path):
     """Load images in numerical order from a given folder. Also returns the
@@ -230,20 +231,20 @@ def load_csv():
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # name for file where generated tracks are saved
-        shared_state.SESSION_FILE = f'track_session_{csv_filename}_{timestamp}.csv'
+        shared_state.session.SESSION_FILE = f'track_session_{csv_filename}_{timestamp}.csv'
         # name for file where leftover positions are preserved
-        shared_state.UPDATED_DATA_FILE = f'upd_{csv_filename}_{timestamp}.csv'
+        shared_state.session.UPDATED_DATA_FILE = f'upd_{csv_filename}_{timestamp}.csv'
 
         csv_data = check_and_add_displ_cols(new_csv_data)
-        shared_state.TRACKED = 'track_no' in csv_data.columns
-        shared_state.EXTRA_COLUMNS = [c for c in csv_data.columns if c not in TRACKING_COLUMNS]
-        shared_state.csv_folder_to_save = os.path.dirname(csv_path)
-        shared_state.DATA = generate_positions_list(csv_data, shared_state.csv_folder_to_save, n_frames=len(images))
+        shared_state.session.TRACKED = 'track_no' in csv_data.columns
+        shared_state.session.EXTRA_COLUMNS = [c for c in csv_data.columns if c not in TRACKING_COLUMNS]
+        shared_state.session.csv_folder_to_save = os.path.dirname(csv_path)
+        shared_state.session.DATA = generate_positions_list(csv_data, shared_state.session.csv_folder_to_save, n_frames=len(images))
         csv_loaded = True
         # Build the graph and propose the first track
-        if shared_state.G is None:
+        if shared_state.session.G is None:
             show_info("Building graph...")
-        show_messages(shared_state.propose())
+        show_messages(shared_state.session.propose())
 
         # Compute track lines once when CSV is loaded
         graph_updated_event()
@@ -323,19 +324,19 @@ def load_track_file():
 
             # Load the current session tracks, if any
             # note that first part of the checked_session_file conditions is always met, added here because otherwise an error is thrown
-            complete_path_to_session_file = os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)
+            complete_path_to_session_file = os.path.join(shared_state.session.csv_folder_to_save, shared_state.session.SESSION_FILE)
             check_session_file = (os.path.getsize(complete_path_to_session_file) == 0)
-            print(f'path exists: {os.path.exists(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))}')
-            print(f'size is 0: {os.path.getsize(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE)) == 0}')
+            print(f'path exists: {os.path.exists(os.path.join(shared_state.session.csv_folder_to_save, shared_state.session.SESSION_FILE))}')
+            print(f'size is 0: {os.path.getsize(os.path.join(shared_state.session.csv_folder_to_save, shared_state.session.SESSION_FILE)) == 0}')
             print(f'check_session_file:{check_session_file}')
 
             # The combined file gets the extra columns of both the track file
             # and the detections file (each once, track file's first), so tracks
             # accepted later line up with its header. Rows from a file that
             # doesn't have a column get NO_VALUE (-1) there.
-            combined_extra_columns = list(dict.fromkeys(track_extra_columns + shared_state.EXTRA_COLUMNS))
+            combined_extra_columns = list(dict.fromkeys(track_extra_columns + shared_state.session.EXTRA_COLUMNS))
             combined_columns = TRACKING_COLUMNS + combined_extra_columns
-            upd_track_file_path = os.path.join(shared_state.csv_folder_to_save, upd_track_file)
+            upd_track_file_path = os.path.join(shared_state.session.csv_folder_to_save, upd_track_file)
 
             if check_session_file:
                 # If session_df is empty, save track_df directly with the updated file name
@@ -347,8 +348,8 @@ def load_track_file():
                 # Extra columns are read as text, exactly as written, so their
                 # values are copied unchanged into the combined file
                 session_df = pd.read_csv(
-                    os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE),
-                    dtype={c: str for c in shared_state.EXTRA_COLUMNS},
+                    os.path.join(shared_state.session.csv_folder_to_save, shared_state.session.SESSION_FILE),
+                    dtype={c: str for c in shared_state.session.EXTRA_COLUMNS},
                     keep_default_na=False,
                 )
                 print(session_df)
@@ -372,9 +373,9 @@ def load_track_file():
                 updated_tracks_df.to_csv(upd_track_file_path, index=False)
                 show_info("Track File Updated. \n The track file has been successfully updated with the new tracks.")
 
-            shared_state.UPD_TRACK_FILE = upd_track_file
-            shared_state.COMBINED_EXTRA_COLUMNS = combined_extra_columns
-            shared_state.MAX_TRACK_ID = max_track_no
+            shared_state.session.UPD_TRACK_FILE = upd_track_file
+            shared_state.session.COMBINED_EXTRA_COLUMNS = combined_extra_columns
+            shared_state.session.MAX_TRACK_ID = max_track_no
 
             if track_file_label is not None:
                 track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
@@ -501,12 +502,12 @@ def update_image():
         viewer.camera.center = current_center
 
     # Ensure DATA and csv_data are loaded, then overlay points and lines
-    if csv_data is not None and shared_state.DATA is not None:
+    if csv_data is not None and shared_state.session.DATA is not None:
         # Get the frame number from the current image file name
         frame_number = int(os.path.splitext(os.path.basename(image_files[shared_state.current_index]))[0])
         # Ensure the frame number is within the range of DATA
-        if 0 <= frame_number < len(shared_state.DATA):
-            frame_data = shared_state.DATA[frame_number]
+        if 0 <= frame_number < len(shared_state.session.DATA):
+            frame_data = shared_state.session.DATA[frame_number]
             # Also called for a frame without detections, so the previous
             # frame's points are cleared instead of staying on screen
             # the positions of the frame's detections, which are drawn; a
@@ -528,7 +529,7 @@ def overlay_points(frame_data):
     # For a frame without detections this is an empty array with no rows,
     # which empties the layers below.
     points = np.array([frame_data['y'], frame_data['x']]).T
-    curr_track = shared_state.track
+    curr_track = shared_state.session.track
     if curr_track is None:
         show_info('No detections left.')
         return
@@ -599,10 +600,10 @@ def overlay_points(frame_data):
 
     # --- Construct and update track lines ---
     track_points = []
-    for t in range(len(shared_state.track)):
-        track_idx = shared_state.track[t]
+    for t in range(len(shared_state.session.track)):
+        track_idx = shared_state.session.track[t]
         if track_idx != -1:
-            d = shared_state.DATA[t][track_idx]
+            d = shared_state.session.DATA[t][track_idx]
             y, x = d.y, d.x
             track_points.append([y, x])
 
@@ -632,12 +633,12 @@ def overlay_points(frame_data):
 def compute_track_lines():
     """Compute line segments connecting consecutive points in the track."""
     track_points = []
-    for t in range(len(shared_state.track)):
-        track_idx = shared_state.track[t]
+    for t in range(len(shared_state.session.track)):
+        track_idx = shared_state.session.track[t]
         if track_idx is not None and track_idx != -1:
-            # Ensure track index is within bounds of shared_state.DATA[t]
-            if 0 <= track_idx < len(shared_state.DATA[t]):
-                d = shared_state.DATA[t][track_idx]
+            # Ensure track index is within bounds of shared_state.session.DATA[t]
+            if 0 <= track_idx < len(shared_state.session.DATA[t]):
+                d = shared_state.session.DATA[t][track_idx]
                 y, x = d.y, d.x
                 track_points.append([y, x])
 
@@ -663,7 +664,7 @@ def delete_detection(layer, event=None, use_key=False):
         if clicked_index is None:
             return  # No valid point was clicked, exit
     else:  # Called using the 'D' key
-        curr_track = shared_state.track
+        curr_track = shared_state.session.track
         # e.g. right after images are reloaded, before a new CSV is loaded
         if not curr_track:
             print("No detections loaded to delete with 'D' key.")
@@ -676,7 +677,7 @@ def delete_detection(layer, event=None, use_key=False):
 
     # If a valid point is found, determine if it's part of a track or a standard detection
     if clicked_index is not None:
-        curr_track = shared_state.track
+        curr_track = shared_state.session.track
         if curr_track[shared_state.current_index] == clicked_index:
             # Call the function for deleting track detection
             delete_det_by_key(layer)
@@ -696,11 +697,11 @@ def delete_det_by_key(layer):
     layer.data[clicked_index] = [-1000000, -1000000]
 
     node_name = f'D_{shared_state.current_index}_{clicked_index}'
-    shared_state.delete_detection(shared_state.current_index, clicked_index)
+    shared_state.session.delete_detection(shared_state.current_index, clicked_index)
 
     # Update the track state
-    shared_state.track[shared_state.current_index] = -1
-    show_messages(shared_state.propose())  # propose a new track without the deleted detection
+    shared_state.session.track[shared_state.current_index] = -1
+    show_messages(shared_state.session.propose())  # propose a new track without the deleted detection
 
     # Refresh the layer to update the visual display
     layer.refresh()
@@ -715,7 +716,7 @@ def delete_det_by_key(layer):
         container.setFocus()
 
     # save up-to-date version of DATA
-    write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
+    write_updated_detections_to_file(shared_state.session.DATA, shared_state.session.UPDATED_DATA_FILE, shared_state.session.csv_folder_to_save)
 
     print(f"Removed node {node_name} with coordinates {point_coords}.")
 
@@ -726,13 +727,13 @@ def delete_det_by_mouse(layer, event):
     layer.data[clicked_index] = [-1000000, -1000000]
 
     node_name = f'D_{shared_state.current_index}_{clicked_index}'
-    shared_state.delete_detection(shared_state.current_index, clicked_index)
+    shared_state.session.delete_detection(shared_state.current_index, clicked_index)
 
     layer.refresh()
     update_image()
 
     # save up-to-date version of DATA
-    write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
+    write_updated_detections_to_file(shared_state.session.DATA, shared_state.session.UPDATED_DATA_FILE, shared_state.session.csv_folder_to_save)
 
     print(f"Removed node {node_name} with coordinates {point_coords}.")
 
@@ -756,7 +757,7 @@ def on_click(layer, event):
 
         if clicked_index is not None and clicked_index >= 0:
             # If a valid point was clicked, update the track and go to the next image
-            shared_state.track[shared_state.current_index] = clicked_index
+            shared_state.session.track[shared_state.current_index] = clicked_index
             next_image()
         else:
             print("Clicked outside of any detection point.")
@@ -791,7 +792,7 @@ def add_detection(layer, event):
             new_size_array = np.full((len(layer.data),), point_size)
 
             # Ensure the size of the track detection in the current frame is changed to 30
-            curr_track = shared_state.track
+            curr_track = shared_state.session.track
             if curr_track[shared_state.current_index] != -1:
                 track_index = curr_track[shared_state.current_index]  # Get the correct track index
                 new_size_array[track_index] = 30  # Set track point size to 30
@@ -801,7 +802,7 @@ def add_detection(layer, event):
             layer.border_width_is_relative = False  # Ensure the border width is absolute
 
             # Add the new detection to the tracking data and the graph
-            shared_state.add_detection(shared_state.current_index, int(data_coords[0]), int(data_coords[1]))
+            shared_state.session.add_detection(shared_state.current_index, int(data_coords[0]), int(data_coords[1]))
 
             # Refresh the layer to display the new point
             layer.refresh()
@@ -809,7 +810,7 @@ def add_detection(layer, event):
             print(f"Added new point at data coordinates: {new_point}, with size: {point_size}")
 
             # save up-to-date version of DATA
-            write_updated_detections_to_file(shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save)
+            write_updated_detections_to_file(shared_state.session.DATA, shared_state.session.UPDATED_DATA_FILE, shared_state.session.csv_folder_to_save)
 
             # Set the flag to indicate a new point was added
             new_point_added = True
@@ -822,7 +823,7 @@ def add_detection(layer, event):
 
 def acceptTrack(event=None):
     """Accept the current track and move to frame 0."""
-    show_messages(shared_state.accept_track(shared_state.track))
+    show_messages(shared_state.session.accept_track(shared_state.session.track))
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -834,7 +835,7 @@ def acceptTrack(event=None):
      
 def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
-    show_messages(shared_state.save_segment(shared_state.track, shared_state.current_index))
+    show_messages(shared_state.session.save_segment(shared_state.session.track, shared_state.current_index))
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -843,7 +844,7 @@ def saveSegment(event=None):
         container.setFocus()
 
 def deleteSegment(event=None):
-    show_messages(shared_state.delete_segment(shared_state.track, shared_state.current_index))
+    show_messages(shared_state.session.delete_segment(shared_state.session.track, shared_state.current_index))
     shared_state.current_index = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
     image_slider.image_index.value = shared_state.current_index  # Sync the slider value
@@ -854,7 +855,7 @@ def deleteSegment(event=None):
 
 def deleteAllConnections(event=None):
     """Triggers the function which would delete all outgoing edges (apart from an X- or T-edge)"""
-    show_messages(shared_state.delete_all_connections(shared_state.track, shared_state.current_index))
+    show_messages(shared_state.session.delete_all_connections(shared_state.session.track, shared_state.current_index))
     update_image()
     graph_updated_event()
     # Refocus the main container after handling the event
@@ -1060,9 +1061,9 @@ def create_path_row(description, explanation):
 def update_file_paths_display():
     """Show/hide and refresh the output-file-path rows based on current state."""
     if csv_loaded:
-        leftover_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.UPDATED_DATA_FILE))
+        leftover_path_field.set_path(os.path.join(shared_state.session.csv_folder_to_save, shared_state.session.UPDATED_DATA_FILE))
         leftover_row.setVisible(True)
-        session_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.SESSION_FILE))
+        session_path_field.set_path(os.path.join(shared_state.session.csv_folder_to_save, shared_state.session.SESSION_FILE))
         session_row.setVisible(True)
         # The whole Session Files card (header included) only makes sense
         # once there's a CSV loaded -- with just images loaded, there's
@@ -1075,8 +1076,8 @@ def update_file_paths_display():
         if session_files_header is not None:
             session_files_header.setVisible(False)
 
-    if shared_state.MAX_TRACK_ID is not None:
-        upd_track_path_field.set_path(os.path.join(shared_state.csv_folder_to_save, shared_state.UPD_TRACK_FILE))
+    if shared_state.session.MAX_TRACK_ID is not None:
+        upd_track_path_field.set_path(os.path.join(shared_state.session.csv_folder_to_save, shared_state.session.UPD_TRACK_FILE))
         upd_track_row.setVisible(True)
     else:
         upd_track_row.setVisible(False)
@@ -1204,28 +1205,13 @@ def clear_detections_and_tracks():
         viewer.layers['track_lines'].data = np.empty((0, 2, 2))
         viewer.layers['track_lines'].refresh()  # Ensure the layer refreshes
     
-    # Reset shared state as needed
-    shared_state.DATA = []  # Explicitly set to an empty list rather than None
-    shared_state.EXTRA = []
-    shared_state.EXTRA_COLUMNS = []
-    shared_state.COMBINED_EXTRA_COLUMNS = []
-    shared_state.track = []
+    # A fresh session: no detections, graph, tracks or file names. Its blank
+    # file names make any stray write fail loudly (e.g. IsADirectoryError)
+    # rather than silently writing into the *previous* dataset's files.
+    shared_state.session = Session()
     shared_state.track_lines = None
-    shared_state.NUM_DET_PER_FRAME = []
-    shared_state.TRACKED = False
-    shared_state.MAX_TRACK_ID = None
-    shared_state.G = None
-    shared_state.N_TRACKS = 0
     shared_state.NUM_DETS = None
     shared_state.NUM_CONN = None
-
-    # Reset the filenames themselves too, not just MAX_TRACK_ID -- so that if
-    # any future code path is ever reached with an empty/cleared DATA or
-    # track, it fails loudly (e.g. IsADirectoryError from a blank path)
-    # rather than silently writing into the *previous* dataset's files.
-    shared_state.SESSION_FILE = ''
-    shared_state.UPDATED_DATA_FILE = ''
-    shared_state.UPD_TRACK_FILE = ''
 
     # Hide all three rows unconditionally rather than routing through
     # update_file_paths_display(): that function's leftover/session
@@ -1265,13 +1251,13 @@ def write_updated_detections_to_file(data, updated_data_file, csv_path):
     # save up-to-date version of DATA
 
     f = open(os.path.join(csv_path, updated_data_file), "w")
-    f.write(f'tframe,y,x,displ_y,displ_x{shared_state.extra_header()}\n')
+    f.write(f'tframe,y,x,displ_y,displ_x{shared_state.session.extra_header()}\n')
     for i,_ in enumerate(data):
         for j,_ in enumerate(data[i]):
             # ensure that the detection that is deleted is not saved
             if data[i][j].active:
                 d = data[i][j]
-                f.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x}{shared_state.extra_values(i, j)}\n")
+                f.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x}{shared_state.session.extra_values(i, j)}\n")
     f.close()
 
 def _maybe_start_repeat_right():
@@ -1322,9 +1308,9 @@ def update_labels():
     """Update the QLabel widgets with the current count of detections and connections."""
     global dets_label, conns_label  # Declare the variables as global to avoid NameError
 
-    if shared_state.G is not None:
+    if shared_state.session.G is not None:
         # Compute the number of detections and connections
-        counts = shared_state.stats()
+        counts = shared_state.session.stats()
         shared_state.NUM_DETS = counts["detections"]
         shared_state.NUM_CONN = counts["connections"]
 

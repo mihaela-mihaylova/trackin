@@ -57,41 +57,41 @@ def load(detections, folder, max_score=1600, score_func="squared"):
     csv_path = folder / "detections.csv"
     detections.to_csv(csv_path, index=False)
     df = check_and_add_displ_cols(read_detections_csv(csv_path))
-    shared_state.MAX_SCORE = max_score
-    shared_state.SCORE_FUNC = score_func
-    shared_state.TRACKED = "track_no" in df.columns
-    shared_state.EXTRA_COLUMNS = [c for c in df.columns if c not in TRACKING_COLUMNS]
-    shared_state.csv_folder_to_save = str(folder)
-    shared_state.SESSION_FILE = "session.csv"
-    shared_state.UPDATED_DATA_FILE = "leftover.csv"
-    shared_state.DATA = generate_positions_list(df, str(folder), n_frames=N_FRAMES)
-    shared_state.propose()
+    shared_state.session.MAX_SCORE = max_score
+    shared_state.session.SCORE_FUNC = score_func
+    shared_state.session.TRACKED = "track_no" in df.columns
+    shared_state.session.EXTRA_COLUMNS = [c for c in df.columns if c not in TRACKING_COLUMNS]
+    shared_state.session.csv_folder_to_save = str(folder)
+    shared_state.session.SESSION_FILE = "session.csv"
+    shared_state.session.UPDATED_DATA_FILE = "leftover.csv"
+    shared_state.session.DATA = generate_positions_list(df, str(folder), n_frames=N_FRAMES)
+    shared_state.session.propose()
 
 
 def index_at(frame, y, x):
     """Which detection in `frame` is at (y, x)."""
-    return next(i for i, d in enumerate(shared_state.DATA[frame]) if (d.y, d.x) == (y, x))
+    return next(i for i, d in enumerate(shared_state.session.DATA[frame]) if (d.y, d.x) == (y, x))
 
 
 def save_leftover_file():
     """What the plugin does after deleting or adding a detection."""
     write_updated_detections_to_file(
-        shared_state.DATA, shared_state.UPDATED_DATA_FILE, shared_state.csv_folder_to_save
+        shared_state.session.DATA, shared_state.session.UPDATED_DATA_FILE, shared_state.session.csv_folder_to_save
     )
 
 
 def delete_with_d(frame):
     """D: delete the track's detection in `frame`, and propose again."""
-    shared_state.delete_detection(frame, shared_state.track[frame])
-    shared_state.track[frame] = -1
-    shared_state.propose()
+    shared_state.session.delete_detection(frame, shared_state.session.track[frame])
+    shared_state.session.track[frame] = -1
+    shared_state.session.propose()
     save_leftover_file()
 
 
 def delete_with_right_click(frame, index):
     """Right-click on a detection that is not on the track: delete it,
     without proposing again."""
-    shared_state.delete_detection(frame, index)
+    shared_state.session.delete_detection(frame, index)
     save_leftover_file()
 
 
@@ -103,10 +103,10 @@ def replay_edits(folder):
     steps = []
 
     def note(action):
-        counts = shared_state.stats()  # the "Detections" and "Connections" shown in the panel
+        counts = shared_state.session.stats()  # the "Detections" and "Connections" shown in the panel
         steps.append({
             "action": action,
-            "track": list(shared_state.track or []),
+            "track": list(shared_state.session.track or []),
             "detections": counts["detections"],
             "connections": counts["connections"],
         })
@@ -116,11 +116,11 @@ def replay_edits(folder):
     note("load")
 
     # W at frame 2: save the track up to frame 2
-    shared_state.save_segment(shared_state.track, 2)
+    shared_state.session.save_segment(shared_state.session.track, 2)
     note("W at frame 2")
 
     # Left-click at frame 3: pick the noise detection instead of the proposed one
-    shared_state.track[3] = index_at(3, 35, 85)
+    shared_state.session.track[3] = index_at(3, 35, 85)
     note("click noise at frame 3")
 
     # D at frame 3: delete it again, and get a new proposal
@@ -132,25 +132,25 @@ def replay_edits(folder):
     note("right-click C at frame 2")
 
     # Shift-click at frame 4: add a detection by hand at (40, 40)
-    shared_state.add_detection(4, 40, 40)
+    shared_state.session.add_detection(4, 40, 40)
     save_leftover_file()
     note("add at frame 4")
 
     # X at frame 2: delete the connections after frame 2
-    shared_state.delete_all_connections(shared_state.track, 2)
+    shared_state.session.delete_all_connections(shared_state.session.track, 2)
     note("X at frame 2")
 
     # Shift-Q: accept the track
-    shared_state.accept_track(shared_state.track)
+    shared_state.session.accept_track(shared_state.session.track)
     note("accept")
 
     # Shift-Z at frame 3: delete the segment up to frame 3
-    shared_state.delete_segment(shared_state.track, 3)
+    shared_state.session.delete_segment(shared_state.session.track, 3)
     note("Shift-Z at frame 3")
 
     # Shift-Q until nothing is left
-    while shared_state.track:
-        shared_state.accept_track(shared_state.track)
+    while shared_state.session.track:
+        shared_state.session.accept_track(shared_state.session.track)
         note("accept")
 
     return steps
@@ -160,9 +160,9 @@ def replay_accept_all(folder, detections, **settings):
     """Load, then accept until nothing is left: the tracking on its own."""
     load(detections, folder, **settings)
     tracks = []
-    while shared_state.track:
-        tracks.append(list(shared_state.track))
-        shared_state.accept_track(shared_state.track)
+    while shared_state.session.track:
+        tracks.append(list(shared_state.session.track))
+        shared_state.session.accept_track(shared_state.session.track)
     return tracks
 
 
@@ -192,18 +192,8 @@ def replay(name, folder):
     }
 
 
-@pytest.fixture
-def fresh_shared_state():
-    """Puts shared_state back as it was after the test, as other tests
-    share it."""
-    original = dict(shared_state.__dict__)
-    yield
-    shared_state.__dict__.clear()
-    shared_state.__dict__.update(original)
-
-
 @pytest.mark.parametrize("name", SESSIONS)
-def test_session_gives_the_recorded_results(name, tmp_path, fresh_shared_state):
+def test_session_gives_the_recorded_results(name, tmp_path):
     """Replays the session and checks that the proposed tracks and the
     session and leftover files are exactly as recorded. If this fails after
     a change, that change altered what trackin does."""
