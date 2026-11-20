@@ -259,7 +259,7 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
         shared_state.session.TRACKED = True
         shared_state.session.MAX_TRACK_ID = 7
         shared_state.session.G = object()  # value doesn't matter, only that it's reset to None
-        shared_state.session.N_TRACKS = 3
+        shared_state.session.accepted = [[0], [0], [0]]  # three tracks accepted before
         shared_state.session.SESSION_FILE = "track_session_old_20250101_000000.csv"
         shared_state.session.UPDATED_DATA_FILE = "upd_old_20250101_000000.csv"
         shared_state.session.UPD_TRACK_FILE = "with_new_tracks_added_old_20250101_000000.csv"
@@ -274,7 +274,7 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
         assert shared_state.session.TRACKED is False
         assert shared_state.session.MAX_TRACK_ID is None
         assert shared_state.session.G is None
-        assert shared_state.session.N_TRACKS == 0
+        assert shared_state.session.accepted == []
         assert shared_state.session.SESSION_FILE == ''
         assert shared_state.session.UPDATED_DATA_FILE == ''
         assert shared_state.session.UPD_TRACK_FILE == ''
@@ -726,7 +726,6 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     ])
     monkeypatch.setattr(shared_state.session, "EXTRA_COLUMNS", ["label", "note"])
     monkeypatch.setattr(shared_state, "track", [0, 0])  # first detection of frame 0, then of frame 1
-    monkeypatch.setattr(shared_state.session, "N_TRACKS", 0)
     monkeypatch.setattr(shared_state.session, "MAX_TRACK_ID", None)
     monkeypatch.setattr(shared_state.session, "csv_folder_to_save", str(tmp_path))
     monkeypatch.setattr(shared_state.session, "SESSION_FILE", "session.csv")
@@ -922,7 +921,6 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
     monkeypatch.setattr(shared_state.session, "EXTRA_COLUMNS", ["label", "note"])
     monkeypatch.setattr(shared_state.session, "COMBINED_EXTRA_COLUMNS", ["label", "quality", "note"])
     monkeypatch.setattr(shared_state, "track", [0, 0])
-    monkeypatch.setattr(shared_state.session, "N_TRACKS", 0)
     monkeypatch.setattr(shared_state.session, "MAX_TRACK_ID", 3)
     monkeypatch.setattr(shared_state.session, "csv_folder_to_save", str(tmp_path))
     monkeypatch.setattr(shared_state.session, "SESSION_FILE", "session.csv")

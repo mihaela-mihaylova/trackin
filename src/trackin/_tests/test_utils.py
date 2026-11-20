@@ -14,7 +14,6 @@ def staged_shared_state(tmp_path):
     shared_state.session.csv_folder_to_save = str(tmp_path)
     shared_state.session.SESSION_FILE = "session.csv"
     shared_state.session.UPDATED_DATA_FILE = "updated.csv"
-    shared_state.session.N_TRACKS = 0
     shared_state.session.TRACKED = False
     shared_state.session.MAX_TRACK_ID = None  # no prior track file loaded -> skip UPD_TRACK_FILE
     shared_state.session.G = generate_graph(
@@ -83,8 +82,8 @@ def test_accept_track_writes_upd_track_file_with_offset_track_id(staged_shared_s
 
     shared_state.session.accept_track(shared_state.session.track)
 
-    # updated_track_id = MAX_TRACK_ID + N_TRACKS = 5 + 1 (accept_track increments
-    # N_TRACKS from 0 to 1 before this file is written). Unlike SESSION_FILE, this
+    # updated_track_id = MAX_TRACK_ID + this track's number = 5 + 1 (it's the
+    # first track accepted in this session). Unlike SESSION_FILE, this
     # file has no header -- it's opened in append mode and rows are written as-is.
     upd_track_lines = (tmp_path / "upd_tracks.csv").read_text().splitlines()
     assert upd_track_lines == [
@@ -104,7 +103,7 @@ def test_accept_track_no_op_when_track_is_empty_list(staged_shared_state):
     shared_state.session.accept_track(shared_state.session.track)
 
     assert not (tmp_path / "session.csv").exists()
-    assert shared_state.session.N_TRACKS == 0  # must not increment on a no-op
+    assert shared_state.session.accepted == []  # nothing accepted on a no-op
 
 
 def test_delete_segment_no_op_when_track_is_empty_list_even_with_stale_num_dets(
@@ -196,3 +195,20 @@ def test_delete_segment_works_without_the_panel_counting(staged_shared_state):
     assert shared_state.session.DATA[0][0].active is False  # both detections deleted
     assert shared_state.session.DATA[1][0].active is False
     assert (tmp_path / "updated.csv").read_text().splitlines() == ["tframe,y,x,displ_y,displ_x"]
+
+
+def test_accept_track_keeps_the_accepted_tracks(staged_shared_state):
+    """The session keeps each accepted track, in order; a track's number in
+    the session file is its place in that list (1 for the first)."""
+    tmp_path = staged_shared_state
+    shared_state.session.DATA = [[Detection(10, 20), Detection(50, 50)], [Detection(30, 40), Detection(60, 60)]]
+    shared_state.session.G = generate_graph(
+        shared_state.session.DATA, max_score=1600, score_func="squared", tracked=False
+    )
+
+    shared_state.session.accept_track([0, 0])
+    shared_state.session.accept_track([1, 1])
+
+    assert shared_state.session.accepted == [[0, 0], [1, 1]]
+    lines = (tmp_path / "session.csv").read_text().splitlines()
+    assert [line.split(",")[5] for line in lines[1:]] == ["1", "1", "2", "2"]  # track_no column

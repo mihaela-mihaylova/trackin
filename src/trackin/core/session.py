@@ -32,7 +32,11 @@ class Session:
         self.track = []
         self.MAX_SCORE = 1600
         self.SCORE_FUNC = 'squared'
-        self.N_TRACKS = 0
+        # the accepted tracks, in the order they were accepted: track number
+        # k (in the session file) is accepted[k-1]. Each is the detection's
+        # index in each frame, or -1; the detections themselves stay in DATA
+        # (inactive), with their positions and extra values.
+        self.accepted = []
         self.MAX_TRACK_ID = None
         self.csv_folder_to_save = ''
         self.SESSION_FILE = ''
@@ -86,7 +90,8 @@ class Session:
         # the *previous* dataset's SESSION_FILE and write a header into it.
         if not track:
             return ['No detections left.']
-        self.N_TRACKS += 1
+        self.accepted.append(list(track))
+        track_no = len(self.accepted)
         track_with_nodes = []
         session_file_path = os.path.join(self.csv_folder_to_save, self.SESSION_FILE)
         if self.MAX_TRACK_ID is not None:
@@ -98,7 +103,7 @@ class Session:
         # add to file with both old and new tracks if a track file is loaded
         if self.MAX_TRACK_ID is not None:
             with open(upd_tracks_file_path, "a") as f:
-                updated_track_id = self.MAX_TRACK_ID + self.N_TRACKS
+                updated_track_id = self.MAX_TRACK_ID + track_no
                 for i, p in enumerate(track):
                     if p >= 0:
                         d = self.DATA[i][p]
@@ -110,7 +115,7 @@ class Session:
             for i, p in enumerate(track):
                 if p >= 0:
                     d = self.DATA[i][p]
-                    f.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x},{self.N_TRACKS}{self.extra_values(i, p)}\n")
+                    f.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x},{track_no}{self.extra_values(i, p)}\n")
                     # the points of the accepted track are no longer available
                     self.deactivate(i, p)
                     # remove nodes from track
