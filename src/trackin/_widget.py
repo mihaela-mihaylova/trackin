@@ -7,14 +7,14 @@ from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
 from napari.utils.events import EventEmitter
-from .shared_state import shared_state, NO_VALUE
+from .shared_state import shared_state
 from .core.session import Session
 from datetime import datetime
 from .core.io import (
-    TRACKING_COLUMNS, IMAGE_NAMING_RULE, read_detections_csv, check_and_add_displ_cols,
+    IMAGE_NAMING_RULE, read_detections_csv, check_and_add_displ_cols,
     list_image_files, format_list, check_image_numbering, check_detection_frames,
     generate_upd_track_filename, write_leftover_file, append_to_session_file,
-    append_to_combined_file,
+    append_to_combined_file, TrackFileError, read_track_file, tracks_table, combine_tracks,
 )
 from napari.utils.notifications import show_info
 
@@ -291,88 +291,22 @@ def load_track_file():
         upd_track_file = generate_upd_track_filename(csv_path, timestamp)
 
         try:
-            # Check the columns first: the file must start with the standard
-            # track columns, in order; any further columns are extra columns
-            header = list(pd.read_csv(csv_path, nrows=0).columns)
-            if header[:len(TRACKING_COLUMNS)] != TRACKING_COLUMNS:
-                QMessageBox.critical(
-                    None, "Track File Not Loaded",
-                    "The track file must start with these columns, in this order: "
-                    f"{', '.join(TRACKING_COLUMNS)}.\n"
-                    f"It starts with: {', '.join(header[:len(TRACKING_COLUMNS)])}.\n\n"
-                    "Any further columns (e.g. label, area) are allowed and kept."
-                )
-                return
-            track_extra_columns = header[len(TRACKING_COLUMNS):]
-
-            # Extra columns are read as text, exactly as written, so their
-            # values are copied unchanged into the combined file
-            track_df = pd.read_csv(
-                csv_path,
-                dtype={c: str for c in track_extra_columns},
-                keep_default_na=False,
-            )
-
-            # Check if the file is empty or only has a header
-            if track_df.empty:
-                QMessageBox.critical(None, "File Is Empty", "The loaded file is empty or only contains a header.")
-                return
-            track_df = track_df.astype({c: int for c in TRACKING_COLUMNS})
-
-            # Load the current session tracks, if any
-            # note that first part of the checked_session_file conditions is always met, added here because otherwise an error is thrown
-            complete_path_to_session_file = os.path.join(shared_state.session.output_folder, shared_state.session.session_file)
-            check_session_file = (os.path.getsize(complete_path_to_session_file) == 0)
-            print(f'path exists: {os.path.exists(os.path.join(shared_state.session.output_folder, shared_state.session.session_file))}')
-            print(f'size is 0: {os.path.getsize(os.path.join(shared_state.session.output_folder, shared_state.session.session_file)) == 0}')
-            print(f'check_session_file:{check_session_file}')
-
-            # The combined file gets the extra columns of both the track file
-            # and the detections file (each once, track file's first), so tracks
-            # accepted later line up with its header. Rows from a file that
-            # doesn't have a column get NO_VALUE (-1) there.
-            combined_extra_columns = list(dict.fromkeys(track_extra_columns + shared_state.session.extra_columns))
-            combined_columns = TRACKING_COLUMNS + combined_extra_columns
-            upd_track_file_path = os.path.join(shared_state.session.output_folder, upd_track_file)
-
-            if check_session_file:
-                # If session_df is empty, save track_df directly with the updated file name
-                track_df.reindex(columns=combined_columns, fill_value=NO_VALUE).to_csv(upd_track_file_path, index=False)
-                max_track_no = track_df['track_no'].max()
-                show_info("Track File Added. \n The track file has been successfully added. New tracks will be added to the existing tracks.")
-                
-            else:
-                # Extra columns are read as text, exactly as written, so their
-                # values are copied unchanged into the combined file
-                session_df = pd.read_csv(
-                    os.path.join(shared_state.session.output_folder, shared_state.session.session_file),
-                    dtype={c: str for c in shared_state.session.extra_columns},
-                    keep_default_na=False,
-                )
-                print(session_df)
-
-                # If session_df has data, extract the max value of track_no from track_df
-                max_track_no = track_df['track_no'].max()
-                
-                session_df['track_no'] = session_df['track_no'] + max_track_no
-                print(session_df)
-                
-                # Concatenate the DataFrames
-                updated_tracks_df = pd.concat(
-                    [
-                        track_df.reindex(columns=combined_columns, fill_value=NO_VALUE),
-                        session_df.reindex(columns=combined_columns, fill_value=NO_VALUE),
-                    ],
-                    ignore_index=True,
-                )
-
-                # Save the combined tracks to the new track file
-                updated_tracks_df.to_csv(upd_track_file_path, index=False)
+            track_df = read_track_file(csv_path)
+            max_track_no = track_df['track_no'].max()
+            session = shared_state.session
+            # this session's accepted tracks, numbered after the track file's
+            session_df = tracks_table(session.accepted, session.detections,
+                                      session.extra_columns, first_track_no=max_track_no + 1)
+            combined_df, combined_extra_columns = combine_tracks(track_df, session_df)
+            combined_df.to_csv(os.path.join(session.output_folder, upd_track_file), index=False)
+            if session.accepted:
                 show_info("Track File Updated. \n The track file has been successfully updated with the new tracks.")
+            else:
+                show_info("Track File Added. \n The track file has been successfully added. New tracks will be added to the existing tracks.")
 
-            shared_state.session.combined_file = upd_track_file
-            shared_state.session.combined_extra_columns = combined_extra_columns
-            shared_state.session.max_prior_track_id = max_track_no
+            session.combined_file = upd_track_file
+            session.combined_extra_columns = combined_extra_columns
+            session.max_prior_track_id = max_track_no
 
             if track_file_label is not None:
                 track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
@@ -382,8 +316,8 @@ def load_track_file():
 
             update_file_paths_display()
 
-        except pd.errors.ParserError as e:
-            QMessageBox.critical(None, "File Error", f"The selected file is not a valid CSV or is malformed: {e}")
+        except TrackFileError as e:
+            QMessageBox.critical(None, "Track File Not Loaded", str(e))
             return
         except Exception as e:
             QMessageBox.critical(None, "Error", f"An unexpected error occurred: {e}")

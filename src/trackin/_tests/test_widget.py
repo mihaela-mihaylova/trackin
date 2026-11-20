@@ -796,12 +796,8 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
     """Add Track File writes a combined file whose header includes the
     detections file's extra columns, so tracks accepted later line up with
     it. Rows from the loaded track file (which has no extra columns) get -1
-    (NO_VALUE) there, and rows from this session keep their values exactly
-    (007 stays 007, it is not turned into the number 7)."""
-    (tmp_path / "session.csv").write_text(
-        "tframe,y,x,displ_y,displ_x,track_no,label,note\n"
-        "0,10,10,0,0,1,007,cell_A\n"
-    )
+    (NO_VALUE) there, and this session's accepted tracks keep their extra
+    values exactly as the session has them."""
     track_file = tmp_path / "previous_tracks.csv"
     track_file.write_text("tframe,y,x,displ_y,displ_x,track_no\n0,5,5,0,0,3\n")
 
@@ -810,8 +806,11 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(widget, "track_file_label", None)
     monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
     monkeypatch.setattr(shared_state.session, "extra_columns", ["label", "note"])
+    # one track accepted in this session (detection 0 of frame 0)
+    monkeypatch.setattr(shared_state.session, "detections",
+                        [[Detection(10, 10, active=False, extra=(7, "cell_A"))]])
+    monkeypatch.setattr(shared_state.session, "accepted", [[0]])
     monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "session_file", "session.csv")
     monkeypatch.setattr(shared_state.session, "combined_file", "")
     monkeypatch.setattr(shared_state.session, "max_prior_track_id", None)
     messages = _record_critical_messages(monkeypatch)
@@ -827,7 +826,7 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
     assert combined == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
         "0,5,5,0,0,3,-1,-1",  # from the loaded track file: no extra values
-        "0,10,10,0,0,4,007,cell_A",  # this session's track, renumbered after 3
+        "0,10,10,0,0,4,7,cell_A",  # this session's track, renumbered after 3
     ]
 
 
@@ -837,10 +836,6 @@ def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path,
     columns of both files, each once and the track file's first. Where a
     file doesn't have a column, its rows get -1 there: the track file has no
     "note", this session has no "quality"."""
-    (tmp_path / "session.csv").write_text(
-        "tframe,y,x,displ_y,displ_x,track_no,label,note\n"
-        "0,10,10,0,0,1,7,cell_A\n"
-    )
     track_file = tmp_path / "previous_tracks.csv"
     track_file.write_text(
         "tframe,y,x,displ_y,displ_x,track_no,label,quality\n"
@@ -853,8 +848,11 @@ def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path,
     monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
     monkeypatch.setattr(shared_state.session, "extra_columns", ["label", "note"])
     monkeypatch.setattr(shared_state.session, "combined_extra_columns", [])
+    # one track accepted in this session (detection 0 of frame 0)
+    monkeypatch.setattr(shared_state.session, "detections",
+                        [[Detection(10, 10, active=False, extra=(7, "cell_A"))]])
+    monkeypatch.setattr(shared_state.session, "accepted", [[0]])
     monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "session_file", "session.csv")
     monkeypatch.setattr(shared_state.session, "combined_file", "")
     monkeypatch.setattr(shared_state.session, "max_prior_track_id", None)
     messages = _record_critical_messages(monkeypatch)
