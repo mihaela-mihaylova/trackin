@@ -57,27 +57,27 @@ def load(detections, folder, max_score=1600, score_func="squared"):
     csv_path = folder / "detections.csv"
     detections.to_csv(csv_path, index=False)
     df = check_and_add_displ_cols(read_detections_csv(csv_path))
-    shared_state.session.MAX_SCORE = max_score
-    shared_state.session.SCORE_FUNC = score_func
-    shared_state.session.TRACKED = "track_no" in df.columns
-    shared_state.session.EXTRA_COLUMNS = [c for c in df.columns if c not in TRACKING_COLUMNS]
-    shared_state.session.csv_folder_to_save = str(folder)
-    shared_state.session.SESSION_FILE = "session.csv"
-    shared_state.session.UPDATED_DATA_FILE = "leftover.csv"
-    shared_state.session.DATA = generate_positions_list(df, str(folder), n_frames=N_FRAMES)
+    shared_state.session.max_score = max_score
+    shared_state.session.score_func = score_func
+    shared_state.session.has_prior_tracks = "track_no" in df.columns
+    shared_state.session.extra_columns = [c for c in df.columns if c not in TRACKING_COLUMNS]
+    shared_state.session.output_folder = str(folder)
+    shared_state.session.session_file = "session.csv"
+    shared_state.session.leftover_file = "leftover.csv"
+    shared_state.session.detections = generate_positions_list(df, str(folder), n_frames=N_FRAMES)
     shared_state.session.propose()
     use_proposed_track()
 
 
 def index_at(frame, y, x):
     """Which detection in `frame` is at (y, x)."""
-    return next(i for i, d in enumerate(shared_state.session.DATA[frame]) if (d.y, d.x) == (y, x))
+    return next(i for i, d in enumerate(shared_state.session.detections[frame]) if (d.y, d.x) == (y, x))
 
 
 def save_leftover_file():
     """What the plugin does after deleting or adding a detection."""
     write_updated_detections_to_file(
-        shared_state.session.DATA, shared_state.session.UPDATED_DATA_FILE, shared_state.session.csv_folder_to_save
+        shared_state.session.detections, shared_state.session.leftover_file, shared_state.session.output_folder
     )
 
 
