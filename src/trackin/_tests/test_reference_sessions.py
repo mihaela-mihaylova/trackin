@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from trackin._widget import use_proposed_track, write_updated_detections_to_file
+from trackin._widget import save_leftover_file, use_proposed_track
 from trackin.core.io import check_and_add_displ_cols, read_detections_csv
 from trackin.core.session import Session
 from trackin.shared_state import SharedState, shared_state
@@ -46,13 +46,6 @@ def load(detections, folder, max_score=1600, score_func="squared"):
 def index_at(frame, y, x):
     """Which detection in `frame` is at (y, x)."""
     return next(i for i, d in enumerate(shared_state.session.detections[frame]) if (d.y, d.x) == (y, x))
-
-
-def save_leftover_file():
-    """What the plugin does after deleting or adding a detection."""
-    write_updated_detections_to_file(
-        shared_state.session.detections, shared_state.session.leftover_file, shared_state.session.output_folder
-    )
 
 
 def delete_with_d(frame):
@@ -119,17 +112,20 @@ def replay_edits(folder):
 
     # Shift-Q: accept the track
     shared_state.session.accept_track(shared_state.track)
+    save_leftover_file()
     use_proposed_track()
     note("accept")
 
     # Shift-Z at frame 3: delete the segment up to frame 3
     shared_state.session.delete_segment(shared_state.track, 3)
+    save_leftover_file()
     use_proposed_track()
     note("Shift-Z at frame 3")
 
     # Shift-Q until nothing is left
     while shared_state.track:
         shared_state.session.accept_track(shared_state.track)
+        save_leftover_file()
         use_proposed_track()
         note("accept")
 
@@ -143,6 +139,7 @@ def replay_accept_all(folder, detections, **settings):
     while shared_state.track:
         tracks.append(list(shared_state.track))
         shared_state.session.accept_track(shared_state.track)
+        save_leftover_file()
         use_proposed_track()
     return tracks
 

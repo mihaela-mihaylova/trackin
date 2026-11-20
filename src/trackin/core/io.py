@@ -1,8 +1,9 @@
-# Reading and checking the input files: detections files and image
-# folders. Used by the plugin's interface, which shows the messages these
-# checks return.
+# Reading and checking the input files (detections files and image
+# folders), and writing the output files. Used by the plugin's interface,
+# which shows the messages the checks return and decides when to write.
 
 import csv
+import math
 import os
 from pathlib import PurePosixPath
 
@@ -146,3 +147,26 @@ def generate_upd_track_filename(csv_path, timestamp):
     "my.tracks.v2", not "my")."""
     csv_filename = PurePosixPath(csv_path.replace('\\', '/')).stem
     return f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
+
+def csv_value(value):
+    """A value as written in a CSV cell: empty for a missing value, and in
+    quotes if it contains a comma, quote or line break, so it stays one cell."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return ""
+    text = str(value)
+    if any(char in text for char in ',"\n'):
+        text = '"' + text.replace('"', '""') + '"'
+    return text
+
+def write_leftover_file(path, detections, extra_columns):
+    """Write the detections that are still available (not deleted, and not
+    used in an accepted track) to the file at `path`: tframe, y, x,
+    displ_y, displ_x and the extra columns. Tracking can be continued later
+    from this file."""
+    with open(path, "w") as f:
+        f.write("tframe,y,x,displ_y,displ_x" + "".join("," + csv_value(c) for c in extra_columns) + "\n")
+        for t, frame in enumerate(detections):
+            for d in frame:
+                if d.active:
+                    f.write(f"{t},{d.y},{d.x},{d.displ_y},{d.displ_x}"
+                            + "".join("," + csv_value(v) for v in d.extra) + "\n")

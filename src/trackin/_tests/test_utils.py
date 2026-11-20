@@ -35,10 +35,7 @@ def test_accept_track_writes_session_file_and_marks_detections_consumed(
     assert session_lines[1] == "0,10,20,0,0,1"
     assert session_lines[2] == "1,30,40,0,0,1"
 
-    updated_lines = (tmp_path / "updated.csv").read_text().splitlines()
-    assert updated_lines == ["tframe,y,x,displ_y,displ_x"]  # both detections consumed
-
-    # kept with their position, but no longer available
+    # both detections used: kept with their position, but no longer available
     assert shared_state.session.detections[0][0] == Detection(10, 20, active=False)
     assert shared_state.session.detections[1][0] == Detection(30, 40, active=False)
 
@@ -194,7 +191,6 @@ def test_delete_segment_works_without_the_panel_counting(staged_shared_state):
     assert shared_state.session.delete_segment(shared_state.session.proposal, 1) == ["No detections left."]  # nothing left to propose
     assert shared_state.session.detections[0][0].active is False  # both detections deleted
     assert shared_state.session.detections[1][0].active is False
-    assert (tmp_path / "updated.csv").read_text().splitlines() == ["tframe,y,x,displ_y,displ_x"]
 
 
 def test_accept_track_keeps_the_accepted_tracks(staged_shared_state):

@@ -13,8 +13,8 @@ from trackin._widget import (
     add_white_border,
     check_and_add_displ_cols,
     generate_upd_track_filename,
-    write_updated_detections_to_file,
 )
+from trackin.core.io import write_leftover_file
 from trackin.shared_state import shared_state
 from trackin.core.tracking import generate_graph
 
@@ -149,12 +149,12 @@ def test_add_white_border_rgb():
     assert (bordered[2:-2, 2:-2, :] == 0).all()
 
 
-def test_write_updated_detections_to_file(tmp_path):
+def test_write_leftover_file(tmp_path):
     data = [
         [Detection(10, 20, 1, -1), Detection(50, 60, active=False)],  # frame 0: one real, one deleted
         [Detection(30, 40, 0, 2)],  # frame 1: one real
     ]
-    write_updated_detections_to_file(data, "out.csv", str(tmp_path))
+    write_leftover_file(tmp_path / "out.csv", data, [])
 
     lines = (tmp_path / "out.csv").read_text().splitlines()
 
@@ -167,8 +167,8 @@ def test_write_updated_detections_to_file(tmp_path):
     assert lines[2] == "1,30,40,0,2"
 
 
-def test_write_updated_detections_to_file_empty_data_writes_header_only(tmp_path):
-    write_updated_detections_to_file([], "out.csv", str(tmp_path))
+def test_write_leftover_file_empty_data_writes_header_only(tmp_path):
+    write_leftover_file(tmp_path / "out.csv", [], [])
 
     lines = (tmp_path / "out.csv").read_text().splitlines()
 
@@ -691,19 +691,17 @@ def test_session_from_dataframe_stores_extra_values():
     assert data[2] == [Detection(30, 40, extra=("cell_B", 410.0))]
 
 
-def test_write_updated_detections_to_file_writes_extra_columns(tmp_path, monkeypatch):
+def test_write_leftover_file_writes_extra_columns(tmp_path):
     """The leftover file has the extra columns after the standard ones. A
     value containing a comma is put in quotes so it stays one cell, a missing
     value is left blank, and a deleted detection is still left out."""
-    monkeypatch.setattr(shared_state.session, "extra_columns", ["label", "note"])
     data = [
         # frame 0: one real, one deleted
         [Detection(10, 20, extra=(7, "cell_A")), Detection(50, 60, active=False, extra=(8, "x, y"))],
         [Detection(30, 40, extra=(9, float("nan")))],
     ]
-    monkeypatch.setattr(shared_state.session, "detections", data)
 
-    write_updated_detections_to_file(data, "out.csv", str(tmp_path))
+    write_leftover_file(tmp_path / "out.csv", data, ["label", "note"])
 
     lines = (tmp_path / "out.csv").read_text().splitlines()
     assert lines == [
@@ -715,8 +713,9 @@ def test_write_updated_detections_to_file_writes_extra_columns(tmp_path, monkeyp
 
 def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     """Accepting a track writes its detections' extra values into the
-    session file (after track_no), and the remaining detections' extra values
-    into the leftover file. A value containing a comma is put in quotes."""
+    session file (after track_no), and the plugin then writes the remaining
+    detections' extra values into the leftover file. A value containing a
+    comma is put in quotes."""
     monkeypatch.setattr(shared_state.session, "has_prior_tracks", False)
     monkeypatch.setattr(shared_state.session, "detections", [
         [Detection(10, 10, extra=(7, "cell_A")), Detection(50, 50, extra=(8, "x, y"))],
@@ -734,6 +733,7 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     )
 
     shared_state.session.accept_track(shared_state.track)
+    widget.save_leftover_file()
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
@@ -1035,3 +1035,29 @@ def test_session_from_dataframe_with_track_no_has_prior_tracks():
     assert session.has_prior_tracks is True
     assert session.detections[0][0].prior_track == 7
     assert session.extra_columns == []
+
+
+def test_accept_and_delete_segment_write_the_leftover_file(tmp_path, monkeypatch):
+    """The session no longer writes files itself: after Shift-Q and Shift-Z,
+    the plugin writes the leftover file, which then holds only the
+    detections that are still available."""
+    monkeypatch.setattr(shared_state.session, "detections",
+                        [[Detection(10, 10), Detection(50, 50)], [Detection(12, 12), Detection(52, 52)]])
+    monkeypatch.setattr(shared_state.session, "graph", generate_graph(
+        shared_state.session.detections, max_score=1600, score_func="squared", tracked=False))
+    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state.session, "session_file", "session.csv")
+    monkeypatch.setattr(shared_state.session, "leftover_file", "leftover.csv")
+    # existing labels, so the detection counter just updates them
+    monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
+    monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))
+    leftover = tmp_path / "leftover.csv"
+
+    monkeypatch.setattr(shared_state, "track", [0, 0])
+    widget.acceptTrack()  # Shift-Q
+    assert leftover.read_text().splitlines() == ["tframe,y,x,displ_y,displ_x", "0,50,50,0,0", "1,52,52,0,0"]
+
+    monkeypatch.setattr(shared_state, "track", [1, 1])
+    monkeypatch.setattr(shared_state, "current_frame", 1)
+    widget.deleteSegment()  # Shift-Z
+    assert leftover.read_text().splitlines() == ["tframe,y,x,displ_y,displ_x"]

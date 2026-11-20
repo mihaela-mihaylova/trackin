@@ -6,7 +6,7 @@ import math
 import os
 
 from .detection import Detection
-from .io import TRACKING_COLUMNS
+from .io import TRACKING_COLUMNS, csv_value
 from .tracking import generate_graph, generate_track, remove_all_successors, add_node_with_dummy_edges
 
 # value written in the extra columns for a detection added by hand, which
@@ -149,18 +149,6 @@ class Session:
                     # add node names to list
                     track_with_nodes.append(f'D_{i}_{p}')
 
-        # Save the up-to-date version of the detections
-        updated_data_file_path = os.path.join(self.output_folder, self.leftover_file)
-        with open(updated_data_file_path, "w") as g:
-            g.write(f'tframe,y,x,displ_y,displ_x{self.extra_header()}\n')
-            for i, _ in enumerate(self.detections):
-                for j, _ in enumerate(self.detections[i]):
-                    # Ensure that the detections included in the accepted track are removed from the saved version
-                    if self.detections[i][j].active:
-                        d = self.detections[i][j]
-                        g.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x}{self.extra_values(i, j)}\n")
-
-
         # this is used to remove the nodes used for the track
         return ['Accepted track.'] + self.propose_next()
 
@@ -219,9 +207,8 @@ class Session:
     def delete_segment(self, track, upto):
         """Delete the detections of `track` from frame 0 up to frame `upto`. Shift-Z."""
         segment_to_delete = []
-        updated_data_file_path = os.path.join(self.output_folder, self.leftover_file)
         # No track: e.g. right after images are reloaded, before a new CSV is
-        # loaded. Stopping here keeps the previous dataset's leftover file intact.
+        # loaded. There is nothing to delete then.
         if not track:
             return ['No detections left.']
         for i, p in enumerate(track[0:upto+1]):
@@ -233,15 +220,6 @@ class Session:
                 # add node names to list
                 segment_to_delete.append(f'D_{i}_{p}')
         print(f'Deleted segment: {segment_to_delete}')
-
-        with open(updated_data_file_path, "w") as g:
-            g.write(f'tframe,y,x,displ_y,displ_x{self.extra_header()}\n')
-            for i, _ in enumerate(self.detections):
-                for j, _ in enumerate(self.detections[i]):
-                    # Ensure that the detections included in the accepted track are removed from the saved version
-                    if self.detections[i][j].active:
-                        d = self.detections[i][j]
-                        g.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x}{self.extra_values(i, j)}\n")
 
         return self.propose_next()
 
@@ -328,14 +306,3 @@ class Session:
                                   max_score=self.max_score)
         print(f'Added node D_{frame}_{index}.')
         return index
-
-
-def csv_value(value):
-    """A value as written in a CSV cell: empty for a missing value, and in
-    quotes if it contains a comma, quote or line break, so it stays one cell."""
-    if value is None or (isinstance(value, float) and math.isnan(value)):
-        return ""
-    text = str(value)
-    if any(char in text for char in ',"\n'):
-        text = '"' + text.replace('"', '""') + '"'
-    return text

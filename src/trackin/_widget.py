@@ -13,7 +13,7 @@ from datetime import datetime
 from .core.io import (
     TRACKING_COLUMNS, IMAGE_NAMING_RULE, read_detections_csv, check_and_add_displ_cols,
     list_image_files, format_list, check_image_numbering, check_detection_frames,
-    generate_upd_track_filename,
+    generate_upd_track_filename, write_leftover_file,
 )
 from napari.utils.notifications import show_info
 
@@ -36,6 +36,14 @@ ZOOM_STEP = 1.1  # multiplicative zoom change per wheel notch
 # EVENT EMITTERS
 data_updated_event = EventEmitter(source=None, type_name='data_updated')
 graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
+
+def save_leftover_file():
+    """Write the session's available detections to its leftover file
+    (nothing before a detections file is loaded, as there is no file name)."""
+    session = shared_state.session
+    if session.leftover_file:
+        write_leftover_file(os.path.join(session.output_folder, session.leftover_file),
+                            session.detections, session.extra_columns)
 
 def use_proposed_track():
     """The track being edited becomes a copy of the session's newly
@@ -692,7 +700,7 @@ def delete_det_by_key(layer):
         container.setFocus()
 
     # save up-to-date version of the detections
-    write_updated_detections_to_file(shared_state.session.detections, shared_state.session.leftover_file, shared_state.session.output_folder)
+    save_leftover_file()
 
     print(f"Removed node {node_name} with coordinates {point_coords}.")
 
@@ -709,7 +717,7 @@ def delete_det_by_mouse(layer, event):
     update_image()
 
     # save up-to-date version of the detections
-    write_updated_detections_to_file(shared_state.session.detections, shared_state.session.leftover_file, shared_state.session.output_folder)
+    save_leftover_file()
 
     print(f"Removed node {node_name} with coordinates {point_coords}.")
 
@@ -786,7 +794,7 @@ def add_detection(layer, event):
             print(f"Added new point at data coordinates: {new_point}, with size: {point_size}")
 
             # save up-to-date version of the detections
-            write_updated_detections_to_file(shared_state.session.detections, shared_state.session.leftover_file, shared_state.session.output_folder)
+            save_leftover_file()
 
             # Set the flag to indicate a new point was added
             new_point_added = True
@@ -800,6 +808,7 @@ def add_detection(layer, event):
 def acceptTrack(event=None):
     """Accept the current track and move to frame 0."""
     show_messages(shared_state.session.accept_track(shared_state.track))
+    save_leftover_file()
     use_proposed_track()
     shared_state.current_frame = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
@@ -823,6 +832,7 @@ def saveSegment(event=None):
 
 def deleteSegment(event=None):
     show_messages(shared_state.session.delete_segment(shared_state.track, shared_state.current_frame))
+    save_leftover_file()
     use_proposed_track()
     shared_state.current_frame = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
@@ -1226,19 +1236,6 @@ def clear_detections_and_tracks():
     graph_updated_event()
 
     print("Cleared all detections and tracks.")
-
-def write_updated_detections_to_file(data, updated_data_file, csv_path):
-    # save up-to-date version of the detections
-
-    f = open(os.path.join(csv_path, updated_data_file), "w")
-    f.write(f'tframe,y,x,displ_y,displ_x{shared_state.session.extra_header()}\n')
-    for i,_ in enumerate(data):
-        for j,_ in enumerate(data[i]):
-            # ensure that the detection that is deleted is not saved
-            if data[i][j].active:
-                d = data[i][j]
-                f.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x}{shared_state.session.extra_values(i, j)}\n")
-    f.close()
 
 def _maybe_start_repeat_right():
     """Only start auto-repeat if the key is still held after the initial delay."""
