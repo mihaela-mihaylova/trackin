@@ -1,8 +1,19 @@
 import pytest
 
 from trackin.core.detection import Detection
+from trackin._widget import save_accepted_track
 from trackin.shared_state import shared_state
 from trackin.core.tracking import generate_graph
+
+def accept_and_save(track):
+    """Accept `track`, then write it to the session file (and the combined
+    file), as the plugin does after Shift-Q."""
+    n_accepted = len(shared_state.session.accepted)
+    messages = shared_state.session.accept_track(track)
+    if len(shared_state.session.accepted) > n_accepted:
+        save_accepted_track()
+    return messages
+
 
 @pytest.fixture
 def staged_shared_state(tmp_path):
@@ -28,7 +39,7 @@ def test_accept_track_writes_session_file_and_marks_detections_consumed(
 ):
     tmp_path = staged_shared_state
 
-    shared_state.session.accept_track(shared_state.session.proposal)
+    accept_and_save(shared_state.session.proposal)
 
     session_lines = (tmp_path / "session.csv").read_text().splitlines()
     assert session_lines[0] == "tframe,y,x,displ_y,displ_x,track_no"
@@ -47,7 +58,7 @@ def test_accept_track_does_not_duplicate_header_when_session_file_has_content(
     session_path = tmp_path / "session.csv"
     session_path.write_text("tframe,y,x,displ_y,displ_x,track_no\n0,1,2,0,0,1\n")
 
-    shared_state.session.accept_track(shared_state.session.proposal)
+    accept_and_save(shared_state.session.proposal)
 
     session_lines = session_path.read_text().splitlines()
     assert session_lines.count("tframe,y,x,displ_y,displ_x,track_no") == 1
@@ -64,7 +75,7 @@ def test_accept_track_adds_header_when_session_file_exists_but_empty(
     session_path = tmp_path / "session.csv"
     session_path.touch()  # exists on disk, but 0 bytes
 
-    shared_state.session.accept_track(shared_state.session.proposal)
+    accept_and_save(shared_state.session.proposal)
 
     session_lines = session_path.read_text().splitlines()
     assert session_lines[0] == "tframe,y,x,displ_y,displ_x,track_no"
@@ -77,7 +88,7 @@ def test_accept_track_writes_upd_track_file_with_offset_track_id(staged_shared_s
     shared_state.session.max_prior_track_id = 5
     shared_state.session.combined_file = "upd_tracks.csv"
 
-    shared_state.session.accept_track(shared_state.session.proposal)
+    accept_and_save(shared_state.session.proposal)
 
     # updated_track_id = max_prior_track_id + this track's number = 5 + 1
     # (it's the first track accepted in this session). Unlike the session file, this
@@ -97,7 +108,7 @@ def test_accept_track_no_op_when_track_is_empty_list(staged_shared_state):
     tmp_path = staged_shared_state
     shared_state.session.proposal = []
 
-    shared_state.session.accept_track(shared_state.session.proposal)
+    accept_and_save(shared_state.session.proposal)
 
     assert not (tmp_path / "session.csv").exists()
     assert shared_state.session.accepted == []  # nothing accepted on a no-op
@@ -202,8 +213,8 @@ def test_accept_track_keeps_the_accepted_tracks(staged_shared_state):
         shared_state.session.detections, max_score=1600, score_func="squared", tracked=False
     )
 
-    shared_state.session.accept_track([0, 0])
-    shared_state.session.accept_track([1, 1])
+    accept_and_save([0, 0])
+    accept_and_save([1, 1])
 
     assert shared_state.session.accepted == [[0, 0], [1, 1]]
     lines = (tmp_path / "session.csv").read_text().splitlines()

@@ -733,6 +733,7 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     )
 
     shared_state.session.accept_track(shared_state.track)
+    widget.save_accepted_track()
     widget.save_leftover_file()
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
@@ -930,6 +931,7 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
     )
 
     shared_state.session.accept_track(shared_state.track)
+    widget.save_accepted_track()
 
     assert (tmp_path / "combined.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
@@ -1061,3 +1063,29 @@ def test_accept_and_delete_segment_write_the_leftover_file(tmp_path, monkeypatch
     monkeypatch.setattr(shared_state, "current_frame", 1)
     widget.deleteSegment()  # Shift-Z
     assert leftover.read_text().splitlines() == ["tframe,y,x,displ_y,displ_x"]
+
+
+def test_accept_writes_the_session_and_combined_files(tmp_path, monkeypatch):
+    """The session no longer writes files itself: after Shift-Q, the plugin
+    appends the accepted track to the session file (numbered 1, 2, ...) and,
+    once a track file has been added, to the combined file (numbered after
+    that file's highest track number)."""
+    monkeypatch.setattr(shared_state.session, "detections",
+                        [[Detection(10, 10), Detection(50, 50)], [Detection(12, 12), Detection(52, 52)]])
+    monkeypatch.setattr(shared_state.session, "graph", generate_graph(
+        shared_state.session.detections, max_score=1600, score_func="squared", tracked=False))
+    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state.session, "session_file", "session.csv")
+    monkeypatch.setattr(shared_state.session, "leftover_file", "leftover.csv")
+    monkeypatch.setattr(shared_state.session, "combined_file", "combined.csv")
+    monkeypatch.setattr(shared_state.session, "max_prior_track_id", 3)  # a track file with tracks 1-3 was added
+    # existing labels, so the detection counter just updates them
+    monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
+    monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))
+
+    monkeypatch.setattr(shared_state, "track", [0, 0])
+    widget.acceptTrack()  # Shift-Q
+
+    assert (tmp_path / "session.csv").read_text().splitlines() == [
+        "tframe,y,x,displ_y,displ_x,track_no", "0,10,10,0,0,1", "1,12,12,0,0,1"]
+    assert (tmp_path / "combined.csv").read_text().splitlines() == ["0,10,10,0,0,4", "1,12,12,0,0,4"]

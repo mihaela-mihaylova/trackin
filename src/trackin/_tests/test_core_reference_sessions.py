@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from trackin.core.io import check_and_add_displ_cols, read_detections_csv, write_leftover_file
+from trackin.core.io import append_to_session_file, check_and_add_displ_cols, read_detections_csv, write_leftover_file
 from trackin.core.session import Session
 from trackin._tests.reference_data import DETECTIONS, N_FRAMES, REFERENCE_DIR, TRACKED_DETECTIONS
 
@@ -25,6 +25,13 @@ def load(detections, folder, max_score=1600, score_func="squared"):
     session.leftover_file = "leftover.csv"
     session.propose()
     return session
+
+
+def save_accepted_track(session, folder):
+    """Append the track just accepted to the session file, as a program
+    using the core does after accepting."""
+    append_to_session_file(folder / "session.csv", len(session.accepted), session.accepted[-1],
+                           session.detections, session.extra_columns)
 
 
 def save_leftover_file(session, folder):
@@ -86,6 +93,7 @@ def replay_edits(folder):
 
     # Shift-Q
     session.accept_track(track)
+    save_accepted_track(session, folder)
     save_leftover_file(session, folder)
     track = copy_of_proposal(session)
     note("accept")
@@ -99,6 +107,7 @@ def replay_edits(folder):
     # Shift-Q until nothing is left
     while track:
         session.accept_track(track)
+        save_accepted_track(session, folder)
         save_leftover_file(session, folder)
         track = copy_of_proposal(session)
         note("accept")
@@ -113,6 +122,7 @@ def replay_accept_all(folder, detections, **settings):
     while session.proposal:
         tracks.append(list(session.proposal))
         session.accept_track(session.proposal)
+        save_accepted_track(session, folder)
         save_leftover_file(session, folder)
     return tracks
 

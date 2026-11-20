@@ -6,12 +6,9 @@ import math
 import os
 
 from .detection import Detection
-from .io import TRACKING_COLUMNS, csv_value
+from .io import NO_VALUE, TRACKING_COLUMNS
 from .tracking import generate_graph, generate_track, remove_all_successors, add_node_with_dummy_edges
 
-# value written in the extra columns for a detection added by hand, which
-# didn't come from the detections file and so has no values of its own there
-NO_VALUE = -1
 
 
 class Session:
@@ -69,25 +66,6 @@ class Session:
             session.detections[int(t)].append(Detection(*position, extra=tuple(extra)))
         return session
 
-    def extra_header(self):
-        """The extra columns' names for a CSV header row, each preceded by a
-        comma, or "" if there are none."""
-        return "".join("," + csv_value(c) for c in self.extra_columns)
-
-    def extra_values(self, t, i):
-        """The extra columns' values of detection i in frame t for a CSV row,
-        each preceded by a comma, or "" if there are none."""
-        if not self.extra_columns:
-            return ""
-        return "".join("," + csv_value(v) for v in self.detections[t][i].extra)
-
-    def combined_extra_values(self, t, i):
-        """Like extra_values, but in the order of the combined track file's
-        extra columns. A column only the loaded track file has gets NO_VALUE,
-        as this detection has no value there."""
-        values = dict(zip(self.extra_columns, self.detections[t][i].extra))
-        return "".join("," + csv_value(values.get(c, NO_VALUE)) for c in self.combined_extra_columns)
-
     def path_to_proposal(self, trackp ):
         if trackp is None:
             self.proposal = None
@@ -109,47 +87,24 @@ class Session:
         return ['No detections left.'] if self.proposal is None else []
 
     def accept_track(self, track):
-        """Accept `track`: write it to the session file (and the combined file),
-        and mark its detections as no longer available. Shift-Q."""
+        """Accept `track`: record it in `accepted`, and mark its detections
+        as no longer available. Shift-Q. Writing it to the session file
+        (see core/io.py) is up to the caller."""
         # Also catches track == [] (e.g. right after images are reloaded, before
-        # a new CSV is loaded) -- not just None -- so this doesn't silently open
-        # the *previous* dataset's session file and write a header into it.
+        # a new CSV is loaded) -- not just None
         if not track:
             return ['No detections left.']
         self.accepted.append(list(track))
-        track_no = len(self.accepted)
         track_with_nodes = []
-        session_file_path = os.path.join(self.output_folder, self.session_file)
-        if self.max_prior_track_id is not None:
-            upd_tracks_file_path = os.path.join(self.output_folder, self.combined_file)
+        for i, p in enumerate(track):
+            if p >= 0:
+                # the points of the accepted track are no longer available
+                self.deactivate(i, p)
+                # remove nodes from track
+                self.graph.remove_node(f'D_{i}_{p}')
+                # add node names to list
+                track_with_nodes.append(f'D_{i}_{p}')
 
-        # Determine if header should be added based on file existence and size
-        add_header = not os.path.exists(session_file_path) or os.path.getsize(session_file_path) == 0
-
-        # add to file with both old and new tracks if a track file is loaded
-        if self.max_prior_track_id is not None:
-            with open(upd_tracks_file_path, "a") as f:
-                updated_track_id = self.max_prior_track_id + track_no
-                for i, p in enumerate(track):
-                    if p >= 0:
-                        d = self.detections[i][p]
-                        f.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x},{updated_track_id}{self.combined_extra_values(i, p)}\n")
-
-        with open(session_file_path, "a") as f:
-            if add_header:
-                f.write(f"tframe,y,x,displ_y,displ_x,track_no{self.extra_header()}\n")  # Write the header row
-            for i, p in enumerate(track):
-                if p >= 0:
-                    d = self.detections[i][p]
-                    f.write(f"{i},{d.y},{d.x},{d.displ_y},{d.displ_x},{track_no}{self.extra_values(i, p)}\n")
-                    # the points of the accepted track are no longer available
-                    self.deactivate(i, p)
-                    # remove nodes from track
-                    self.graph.remove_node(f'D_{i}_{p}')
-                    # add node names to list
-                    track_with_nodes.append(f'D_{i}_{p}')
-
-        # this is used to remove the nodes used for the track
         return ['Accepted track.'] + self.propose_next()
 
     # remove all the obsolete edges connected to nodes in a track segment

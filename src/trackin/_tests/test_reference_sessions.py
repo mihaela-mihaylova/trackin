@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from trackin._widget import save_leftover_file, use_proposed_track
+from trackin._widget import save_accepted_track, save_leftover_file, use_proposed_track
 from trackin.core.io import check_and_add_displ_cols, read_detections_csv
 from trackin.core.session import Session
 from trackin.shared_state import SharedState, shared_state
@@ -112,6 +112,7 @@ def replay_edits(folder):
 
     # Shift-Q: accept the track
     shared_state.session.accept_track(shared_state.track)
+    save_accepted_track()
     save_leftover_file()
     use_proposed_track()
     note("accept")
@@ -125,6 +126,7 @@ def replay_edits(folder):
     # Shift-Q until nothing is left
     while shared_state.track:
         shared_state.session.accept_track(shared_state.track)
+        save_accepted_track()
         save_leftover_file()
         use_proposed_track()
         note("accept")
@@ -139,6 +141,7 @@ def replay_accept_all(folder, detections, **settings):
     while shared_state.track:
         tracks.append(list(shared_state.track))
         shared_state.session.accept_track(shared_state.track)
+        save_accepted_track()
         save_leftover_file()
         use_proposed_track()
     return tracks

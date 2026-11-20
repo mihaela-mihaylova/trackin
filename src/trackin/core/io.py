@@ -148,6 +148,10 @@ def generate_upd_track_filename(csv_path, timestamp):
     csv_filename = PurePosixPath(csv_path.replace('\\', '/')).stem
     return f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
 
+# value written in the extra columns for a detection added by hand, which
+# didn't come from the detections file and so has no values of its own there
+NO_VALUE = -1
+
 def csv_value(value):
     """A value as written in a CSV cell: empty for a missing value, and in
     quotes if it contains a comma, quote or line break, so it stays one cell."""
@@ -170,3 +174,31 @@ def write_leftover_file(path, detections, extra_columns):
                 if d.active:
                     f.write(f"{t},{d.y},{d.x},{d.displ_y},{d.displ_x}"
                             + "".join("," + csv_value(v) for v in d.extra) + "\n")
+
+def append_to_session_file(path, track_no, track, detections, extra_columns):
+    """Append accepted track number `track_no` to the session file at
+    `path`: one row per detection (tframe, y, x, displ_y, displ_x, track_no
+    and the extra columns), after a header row if the file is new or empty."""
+    add_header = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, "a") as f:
+        if add_header:
+            f.write("tframe,y,x,displ_y,displ_x,track_no"
+                    + "".join("," + csv_value(c) for c in extra_columns) + "\n")
+        for t, i in enumerate(track):
+            if i >= 0:
+                d = detections[t][i]
+                f.write(f"{t},{d.y},{d.x},{d.displ_y},{d.displ_x},{track_no}"
+                        + "".join("," + csv_value(v) for v in d.extra) + "\n")
+
+def append_to_combined_file(path, track_id, track, detections, extra_columns, combined_extra_columns):
+    """Append an accepted track to the combined file at `path` (written by
+    Add Track File), numbered `track_id`, with the extra columns in the
+    combined file's order. A column the detections file doesn't have gets
+    NO_VALUE."""
+    with open(path, "a") as f:
+        for t, i in enumerate(track):
+            if i >= 0:
+                d = detections[t][i]
+                values = dict(zip(extra_columns, d.extra))
+                f.write(f"{t},{d.y},{d.x},{d.displ_y},{d.displ_x},{track_id}"
+                        + "".join("," + csv_value(values.get(c, NO_VALUE)) for c in combined_extra_columns) + "\n")

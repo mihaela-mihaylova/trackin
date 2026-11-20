@@ -1,7 +1,8 @@
 """The state the plugin shares between its parts: what the screen shows,
 and the tracking session it shows."""
 
-from .core.session import Session, NO_VALUE, csv_value
+from .core.io import NO_VALUE, csv_value
+from .core.session import Session
 
 
 class SharedState:

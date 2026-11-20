@@ -13,7 +13,8 @@ from datetime import datetime
 from .core.io import (
     TRACKING_COLUMNS, IMAGE_NAMING_RULE, read_detections_csv, check_and_add_displ_cols,
     list_image_files, format_list, check_image_numbering, check_detection_frames,
-    generate_upd_track_filename, write_leftover_file,
+    generate_upd_track_filename, write_leftover_file, append_to_session_file,
+    append_to_combined_file,
 )
 from napari.utils.notifications import show_info
 
@@ -36,6 +37,19 @@ ZOOM_STEP = 1.1  # multiplicative zoom change per wheel notch
 # EVENT EMITTERS
 data_updated_event = EventEmitter(source=None, type_name='data_updated')
 graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
+
+def save_accepted_track():
+    """Write the track just accepted to the session file, and to the
+    combined file once a track file has been added."""
+    session = shared_state.session
+    track_no = len(session.accepted)
+    track = session.accepted[-1]
+    append_to_session_file(os.path.join(session.output_folder, session.session_file),
+                           track_no, track, session.detections, session.extra_columns)
+    if session.max_prior_track_id is not None:
+        append_to_combined_file(os.path.join(session.output_folder, session.combined_file),
+                                session.max_prior_track_id + track_no, track,
+                                session.detections, session.extra_columns, session.combined_extra_columns)
 
 def save_leftover_file():
     """Write the session's available detections to its leftover file
@@ -807,7 +821,10 @@ def add_detection(layer, event):
 
 def acceptTrack(event=None):
     """Accept the current track and move to frame 0."""
+    n_accepted = len(shared_state.session.accepted)
     show_messages(shared_state.session.accept_track(shared_state.track))
+    if len(shared_state.session.accepted) > n_accepted:
+        save_accepted_track()
     save_leftover_file()
     use_proposed_track()
     shared_state.current_frame = 0  # Reset to the first frame (frame 0)
