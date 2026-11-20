@@ -133,7 +133,6 @@ def generate_positions_list(df, folder_to_save, n_frames=0):
     # initialize the session.csv file, where tracks are saved
     with open(os.path.join(folder_to_save, f"{shared_state.session.SESSION_FILE}"), "w") as f:
         f.write("")
-    shared_state.session.NUM_DET_PER_FRAME = [len(sublist) for sublist in shared_state.session.DATA]
     return shared_state.session.DATA 
 
 def load_images_from_folder(folder_path):

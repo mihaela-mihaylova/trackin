@@ -33,8 +33,6 @@ class Session:
         self.G = None
         # the proposed track: the detection's index in each frame, or -1
         self.track = []
-        # number of detections that have been in frame (orig dets num + any added ones, used for D-nodes generation
-        self.NUM_DET_PER_FRAME = []
         self.MAX_SCORE = 1600
         self.SCORE_FUNC = 'squared'
         self.N_TRACKS = 0
@@ -290,7 +288,9 @@ class Session:
         """Add a detection by hand at (y, x) in `frame`, to DATA and to the
         graph. It gets NO_VALUE in the extra columns, as it didn't come from
         the detections file. Returns the new detection's index in the frame."""
-        index = self.NUM_DET_PER_FRAME[frame]
+        # numbered after all detections the frame has had, deleted ones
+        # included, as those stay in the list
+        index = len(self.DATA[frame])
         self.DATA[frame].append(Detection(y, x))
         self.EXTRA[frame].append(tuple([NO_VALUE] * len(self.EXTRA_COLUMNS)))
         add_node_with_dummy_edges(node=f'D_{frame}_{index}', time_point=frame, idx=index,
@@ -298,7 +298,6 @@ class Session:
                                   highest_frame_id=len(self.DATA)-1,
                                   max_score=self.MAX_SCORE)
         print(f'Added node D_{frame}_{index}.')
-        self.NUM_DET_PER_FRAME[frame] += 1
         return index
 
 

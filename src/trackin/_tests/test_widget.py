@@ -256,7 +256,6 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
         shared_state.session.DATA = [[(1, 2, 0, 0)]]
         shared_state.track = [0]
         shared_state.track_lines = np.array([[[1, 2], [3, 4]]])
-        shared_state.session.NUM_DET_PER_FRAME = [1]
         shared_state.session.TRACKED = True
         shared_state.session.MAX_TRACK_ID = 7
         shared_state.session.G = object()  # value doesn't matter, only that it's reset to None
@@ -272,7 +271,6 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
         assert shared_state.session.DATA == []
         assert shared_state.track == []
         assert shared_state.track_lines is None
-        assert shared_state.session.NUM_DET_PER_FRAME == []
         assert shared_state.session.TRACKED is False
         assert shared_state.session.MAX_TRACK_ID is None
         assert shared_state.session.G is None
@@ -757,7 +755,6 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(shared_state.session, "DATA", [[Detection(10, 10)], [Detection(20, 20)]])
     monkeypatch.setattr(shared_state.session, "EXTRA_COLUMNS", ["label"])
     monkeypatch.setattr(shared_state.session, "EXTRA", [[(7,)], [(8,)]])
-    monkeypatch.setattr(shared_state.session, "NUM_DET_PER_FRAME", [1, 1])
     monkeypatch.setattr(shared_state, "track", [0, 0])
     monkeypatch.setattr(shared_state, "current_index", 0)
     monkeypatch.setattr(shared_state.session, "csv_folder_to_save", str(tmp_path))
