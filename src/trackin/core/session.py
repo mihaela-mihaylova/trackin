@@ -23,9 +23,6 @@ class Session:
         # frame, label, area), in their original order; they are written back
         # out after the standard columns in every output file
         self.EXTRA_COLUMNS = []
-        # values of those columns for each detection, indexed like DATA:
-        # EXTRA[t][i] belongs to DATA[t][i]
-        self.EXTRA = []
         # extra columns of the combined track file written by Add Track File:
         # those of the loaded track file and of the detections file
         self.COMBINED_EXTRA_COLUMNS = []
@@ -52,13 +49,13 @@ class Session:
         each preceded by a comma, or "" if there are none."""
         if not self.EXTRA_COLUMNS:
             return ""
-        return "".join("," + csv_value(v) for v in self.EXTRA[t][i])
+        return "".join("," + csv_value(v) for v in self.DATA[t][i].extra)
 
     def combined_extra_values(self, t, i):
         """Like extra_values, but in the order of the combined track file's
         extra columns. A column only the loaded track file has gets NO_VALUE,
         as this detection has no value there."""
-        values = dict(zip(self.EXTRA_COLUMNS, self.EXTRA[t][i])) if self.EXTRA_COLUMNS else {}
+        values = dict(zip(self.EXTRA_COLUMNS, self.DATA[t][i].extra))
         return "".join("," + csv_value(values.get(c, NO_VALUE)) for c in self.COMBINED_EXTRA_COLUMNS)
 
     def track_to_posarray(self, trackp ):
@@ -291,8 +288,9 @@ class Session:
         # numbered after all detections the frame has had, deleted ones
         # included, as those stay in the list
         index = len(self.DATA[frame])
-        self.DATA[frame].append(Detection(y, x))
-        self.EXTRA[frame].append(tuple([NO_VALUE] * len(self.EXTRA_COLUMNS)))
+        self.DATA[frame].append(
+            Detection(y, x, extra=(NO_VALUE,) * len(self.EXTRA_COLUMNS), added=True)
+        )
         add_node_with_dummy_edges(node=f'D_{frame}_{index}', time_point=frame, idx=index,
                                   y=y, x=x, displ_y=0, displ_x=0, G=self.G,
                                   highest_frame_id=len(self.DATA)-1,

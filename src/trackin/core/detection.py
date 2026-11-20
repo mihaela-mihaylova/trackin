@@ -15,3 +15,8 @@ class Detection(NamedTuple):
     # False once the detection is deleted or used in an accepted track;
     # its position is kept
     active: bool = True
+    # the detection's values in the extra columns of the detections file
+    # (e.g. label, area), in the order of the session's extra columns
+    extra: tuple = ()
+    # True for a detection added by hand rather than loaded from the file
+    added: bool = False

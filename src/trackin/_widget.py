@@ -112,10 +112,9 @@ def generate_positions_list(df, folder_to_save, n_frames=0):
     loaded images), so frames after the last detection exist too.
 
     The values of the extra columns (shared_state.session.EXTRA_COLUMNS) are stored
-    in shared_state.session.EXTRA, in the same places as the positions in DATA."""
+    in each detection's `extra`."""
     num_frames = max(n_frames, int(df['tframe'].max()) + 1 if len(df) else 0)
     positions_per_frame = [[] for _ in range(num_frames)]
-    extras_per_frame = [[] for _ in range(num_frames)]
     # Read column by column rather than row by row, so each column keeps its
     # own type: a row mixes whole numbers with e.g. text or decimals in the
     # extra columns, and would otherwise turn all of them into one type
@@ -123,12 +122,10 @@ def generate_positions_list(df, folder_to_save, n_frames=0):
     positions = zip(*(df[c].tolist() for c in columns))
     extras = zip(*(df[c].tolist() for c in shared_state.session.EXTRA_COLUMNS)) if shared_state.session.EXTRA_COLUMNS else ([()] * len(df))
     for t, position, extra in zip(df['tframe'].tolist(), positions, extras):
-        positions_per_frame[int(t)].append(Detection(*position))
-        extras_per_frame[int(t)].append(tuple(extra))
+        positions_per_frame[int(t)].append(Detection(*position, extra=tuple(extra)))
 
     for positions in positions_per_frame:
         shared_state.session.DATA.append(positions)
-    shared_state.session.EXTRA = extras_per_frame
 
     # initialize the session.csv file, where tracks are saved
     with open(os.path.join(folder_to_save, f"{shared_state.session.SESSION_FILE}"), "w") as f:

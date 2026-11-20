@@ -666,9 +666,9 @@ def test_read_detections_csv_keeps_extra_columns_as_they_are(tmp_path):
 
 
 def test_generate_positions_list_stores_extra_values(tmp_path, monkeypatch):
-    """Each detection's extra values are stored in shared_state.session.EXTRA, in the
-    same place as its position in DATA. The positions stay whole numbers even
-    though the extra columns hold text and decimals."""
+    """Each detection's extra values are stored in the detection itself
+    (its `extra`). The positions stay whole numbers even though the extra
+    columns hold text and decimals."""
     monkeypatch.setattr(shared_state.session, "DATA", [])
     monkeypatch.setattr(shared_state.session, "TRACKED", False)
     monkeypatch.setattr(shared_state.session, "SESSION_FILE", "session.csv")
@@ -687,11 +687,10 @@ def test_generate_positions_list_stores_extra_values(tmp_path, monkeypatch):
 
     data = widget.generate_positions_list(df, str(tmp_path), n_frames=3)
 
-    assert data[0] == [Detection(10, 20)]
+    assert data[0] == [Detection(10, 20, extra=("cell_A", 350.5))]
     assert type(data[0][0].y) is int  # not turned into a decimal or text
-    assert shared_state.session.EXTRA[0] == [("cell_A", 350.5)]
-    assert shared_state.session.EXTRA[1] == []  # empty frame
-    assert shared_state.session.EXTRA[2] == [("cell_B", 410.0)]
+    assert data[1] == []  # empty frame
+    assert data[2] == [Detection(30, 40, extra=("cell_B", 410.0))]
 
 
 def test_write_updated_detections_to_file_writes_extra_columns(tmp_path, monkeypatch):
@@ -699,11 +698,12 @@ def test_write_updated_detections_to_file_writes_extra_columns(tmp_path, monkeyp
     value containing a comma is put in quotes so it stays one cell, a missing
     value is left blank, and a deleted detection is still left out."""
     monkeypatch.setattr(shared_state.session, "EXTRA_COLUMNS", ["label", "note"])
-    monkeypatch.setattr(shared_state.session, "EXTRA", [[(7, "cell_A"), (8, "x, y")], [(9, float("nan"))]])
     data = [
-        [Detection(10, 20), Detection(50, 60, active=False)],  # frame 0: one real, one deleted
-        [Detection(30, 40)],
+        # frame 0: one real, one deleted
+        [Detection(10, 20, extra=(7, "cell_A")), Detection(50, 60, active=False, extra=(8, "x, y"))],
+        [Detection(30, 40, extra=(9, float("nan")))],
     ]
+    monkeypatch.setattr(shared_state.session, "DATA", data)
 
     write_updated_detections_to_file(data, "out.csv", str(tmp_path))
 
@@ -720,9 +720,11 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     session file (after track_no), and the remaining detections' extra values
     into the leftover file. A value containing a comma is put in quotes."""
     monkeypatch.setattr(shared_state.session, "TRACKED", False)
-    monkeypatch.setattr(shared_state.session, "DATA", [[Detection(10, 10), Detection(50, 50)], [Detection(12, 12)]])
+    monkeypatch.setattr(shared_state.session, "DATA", [
+        [Detection(10, 10, extra=(7, "cell_A")), Detection(50, 50, extra=(8, "x, y"))],
+        [Detection(12, 12, extra=(9, float("nan")))],
+    ])
     monkeypatch.setattr(shared_state.session, "EXTRA_COLUMNS", ["label", "note"])
-    monkeypatch.setattr(shared_state.session, "EXTRA", [[(7, "cell_A"), (8, "x, y")], [(9, float("nan"))]])
     monkeypatch.setattr(shared_state, "track", [0, 0])  # first detection of frame 0, then of frame 1
     monkeypatch.setattr(shared_state.session, "N_TRACKS", 0)
     monkeypatch.setattr(shared_state.session, "MAX_TRACK_ID", None)
@@ -752,9 +754,9 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
     file, so it gets -1 (NO_VALUE) in every extra column, in memory and in
     the leftover file."""
     monkeypatch.setattr(shared_state.session, "TRACKED", False)
-    monkeypatch.setattr(shared_state.session, "DATA", [[Detection(10, 10)], [Detection(20, 20)]])
+    monkeypatch.setattr(shared_state.session, "DATA",
+                        [[Detection(10, 10, extra=(7,))], [Detection(20, 20, extra=(8,))]])
     monkeypatch.setattr(shared_state.session, "EXTRA_COLUMNS", ["label"])
-    monkeypatch.setattr(shared_state.session, "EXTRA", [[(7,)], [(8,)]])
     monkeypatch.setattr(shared_state, "track", [0, 0])
     monkeypatch.setattr(shared_state, "current_index", 0)
     monkeypatch.setattr(shared_state.session, "csv_folder_to_save", str(tmp_path))
@@ -781,7 +783,9 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
 
     widget.add_detection(layer, event)
 
-    assert shared_state.session.EXTRA[0] == [(7,), (-1,)]
+    added = shared_state.session.DATA[0][1]
+    assert added.extra == (-1,)
+    assert added.added is True
     assert (tmp_path / "leftover.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,label",
         "0,10,10,0,0,7",
@@ -913,9 +917,9 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
         "0,5,5,0,0,3,4,good,-1\n"
     )
     monkeypatch.setattr(shared_state.session, "TRACKED", False)
-    monkeypatch.setattr(shared_state.session, "DATA", [[Detection(10, 10)], [Detection(12, 12)]])
+    monkeypatch.setattr(shared_state.session, "DATA",
+                        [[Detection(10, 10, extra=(7, "cell_A"))], [Detection(12, 12, extra=(8, "cell_A"))]])
     monkeypatch.setattr(shared_state.session, "EXTRA_COLUMNS", ["label", "note"])
-    monkeypatch.setattr(shared_state.session, "EXTRA", [[(7, "cell_A")], [(8, "cell_A")]])
     monkeypatch.setattr(shared_state.session, "COMBINED_EXTRA_COLUMNS", ["label", "quality", "note"])
     monkeypatch.setattr(shared_state, "track", [0, 0])
     monkeypatch.setattr(shared_state.session, "N_TRACKS", 0)
