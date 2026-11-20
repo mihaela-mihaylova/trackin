@@ -8,6 +8,7 @@ from skimage.io import imsave
 
 import trackin._widget as widget
 from trackin.core.detection import Detection
+from trackin.core.session import Session
 from trackin._widget import (
     add_white_border,
     check_and_add_displ_cols,
@@ -33,11 +34,8 @@ def test_check_and_add_displ_cols_preserves_existing_columns():
     assert result["displ_y"].tolist() == [7]
 
 
-def test_generate_positions_list_keeps_empty_frames(tmp_path, monkeypatch):
+def test_session_from_dataframe_keeps_empty_frames():
     # 5 images; the CSV has no detections in frame 2 and none after frame 3
-    monkeypatch.setattr(shared_state.session, "detections", [])
-    monkeypatch.setattr(shared_state.session, "has_prior_tracks", False)
-    monkeypatch.setattr(shared_state.session, "session_file", "session.csv")
     df = pd.DataFrame(
         {
             "tframe": [0, 1, 1, 3],
@@ -47,7 +45,7 @@ def test_generate_positions_list_keeps_empty_frames(tmp_path, monkeypatch):
             "displ_x": [0, 0, 0, 0],
         }
     )
-    data = widget.generate_positions_list(df, str(tmp_path), n_frames=5)
+    data = Session.from_dataframe(df, n_frames=5).detections
 
     assert len(data) == 5  # one entry per image
     assert data[0] == [Detection(10, 11)]
@@ -665,14 +663,11 @@ def test_read_detections_csv_keeps_extra_columns_as_they_are(tmp_path):
     assert df["area"].tolist() == [350.5]  # decimals kept
 
 
-def test_generate_positions_list_stores_extra_values(tmp_path, monkeypatch):
+def test_session_from_dataframe_stores_extra_values():
     """Each detection's extra values are stored in the detection itself
-    (its `extra`). The positions stay whole numbers even though the extra
-    columns hold text and decimals."""
-    monkeypatch.setattr(shared_state.session, "detections", [])
-    monkeypatch.setattr(shared_state.session, "has_prior_tracks", False)
-    monkeypatch.setattr(shared_state.session, "session_file", "session.csv")
-    monkeypatch.setattr(shared_state.session, "extra_columns", ["label", "area"])
+    (its `extra`), and the session knows the extra columns' names. The
+    positions stay whole numbers even though the extra columns hold text and
+    decimals. Without a track_no column, there are no prior tracks."""
     df = pd.DataFrame(
         {
             "tframe": [0, 2],
@@ -685,8 +680,11 @@ def test_generate_positions_list_stores_extra_values(tmp_path, monkeypatch):
         }
     )
 
-    data = widget.generate_positions_list(df, str(tmp_path), n_frames=3)
+    session = Session.from_dataframe(df, n_frames=3)
+    data = session.detections
 
+    assert session.extra_columns == ["label", "area"]
+    assert session.has_prior_tracks is False
     assert data[0] == [Detection(10, 20, extra=("cell_A", 350.5))]
     assert type(data[0][0].y) is int  # not turned into a decimal or text
     assert data[1] == []  # empty frame
@@ -1023,3 +1021,17 @@ def test_click_changes_the_edited_track_not_the_proposal(monkeypatch):
 
     assert shared_state.track == [0, 1]
     assert shared_state.session.proposal == [0, 0]
+
+
+def test_session_from_dataframe_with_track_no_has_prior_tracks():
+    """A table with a track_no column comes from an earlier tracking run:
+    the session notes that it has prior tracks, keeps each detection's
+    earlier track number (prior_track), and track_no is not an extra column."""
+    df = pd.DataFrame({"tframe": [0, 1], "y": [10, 12], "x": [20, 22],
+                       "displ_y": [0, 0], "displ_x": [0, 0], "track_no": [7, 7]})
+
+    session = Session.from_dataframe(df, n_frames=2)
+
+    assert session.has_prior_tracks is True
+    assert session.detections[0][0].prior_track == 7
+    assert session.extra_columns == []

@@ -9,7 +9,6 @@ import numpy as np
 from napari.utils.events import EventEmitter
 from .shared_state import shared_state, NO_VALUE
 from .core.session import Session
-from .core.detection import Detection
 from datetime import datetime
 from .core.io import (
     TRACKING_COLUMNS, IMAGE_NAMING_RULE, read_detections_csv, check_and_add_displ_cols,
@@ -102,35 +101,6 @@ def initialize_viewer(napari_viewer):
     right_timer.timeout.connect(next_image)
     left_timer.timeout.connect(previous_image)
 
-
-def generate_positions_list(df, folder_to_save, n_frames=0):
-    """Load positions data into a list of lists, required by our tracking algorithm.
-
-    Frames are indexed by their frame number (tframe), so a frame without
-    detections stays an empty list instead of shifting all later frames onto
-    the wrong images. The list covers at least n_frames frames (the number of
-    loaded images), so frames after the last detection exist too.
-
-    The values of the extra columns (shared_state.session.extra_columns) are stored
-    in each detection's `extra`."""
-    num_frames = max(n_frames, int(df['tframe'].max()) + 1 if len(df) else 0)
-    positions_per_frame = [[] for _ in range(num_frames)]
-    # Read column by column rather than row by row, so each column keeps its
-    # own type: a row mixes whole numbers with e.g. text or decimals in the
-    # extra columns, and would otherwise turn all of them into one type
-    columns = ['y', 'x', 'displ_y', 'displ_x'] + (['track_no'] if shared_state.session.has_prior_tracks else [])
-    positions = zip(*(df[c].tolist() for c in columns))
-    extras = zip(*(df[c].tolist() for c in shared_state.session.extra_columns)) if shared_state.session.extra_columns else ([()] * len(df))
-    for t, position, extra in zip(df['tframe'].tolist(), positions, extras):
-        positions_per_frame[int(t)].append(Detection(*position, extra=tuple(extra)))
-
-    for positions in positions_per_frame:
-        shared_state.session.detections.append(positions)
-
-    # initialize the session.csv file, where tracks are saved
-    with open(os.path.join(folder_to_save, f"{shared_state.session.session_file}"), "w") as f:
-        f.write("")
-    return shared_state.session.detections 
 
 def load_images_from_folder(folder_path):
     """Load images in numerical order from a given folder. Also returns the
@@ -230,6 +200,9 @@ def load_csv():
         if csv_loaded:
             clear_detections_and_tracks()
 
+        csv_data = check_and_add_displ_cols(new_csv_data)
+        shared_state.session = Session.from_dataframe(csv_data, n_frames=len(images))
+
         csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -237,12 +210,10 @@ def load_csv():
         shared_state.session.session_file = f'track_session_{csv_filename}_{timestamp}.csv'
         # name for file where leftover positions are preserved
         shared_state.session.leftover_file = f'upd_{csv_filename}_{timestamp}.csv'
-
-        csv_data = check_and_add_displ_cols(new_csv_data)
-        shared_state.session.has_prior_tracks = 'track_no' in csv_data.columns
-        shared_state.session.extra_columns = [c for c in csv_data.columns if c not in TRACKING_COLUMNS]
         shared_state.session.output_folder = os.path.dirname(csv_path)
-        shared_state.session.detections = generate_positions_list(csv_data, shared_state.session.output_folder, n_frames=len(images))
+        # create the empty session file, where accepted tracks are saved
+        with open(os.path.join(shared_state.session.output_folder, shared_state.session.session_file), "w") as f:
+            f.write("")
         csv_loaded = True
         # Build the graph and propose the first track
         if shared_state.session.graph is None:

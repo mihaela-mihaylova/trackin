@@ -18,8 +18,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from trackin._widget import generate_positions_list, use_proposed_track, write_updated_detections_to_file
-from trackin.core.io import TRACKING_COLUMNS, check_and_add_displ_cols, read_detections_csv
+from trackin._widget import use_proposed_track, write_updated_detections_to_file
+from trackin.core.io import check_and_add_displ_cols, read_detections_csv
+from trackin.core.session import Session
 from trackin.shared_state import SharedState, shared_state
 
 REFERENCE_DIR = Path(__file__).parent / "data" / "reference"
@@ -57,14 +58,13 @@ def load(detections, folder, max_score=1600, score_func="squared"):
     csv_path = folder / "detections.csv"
     detections.to_csv(csv_path, index=False)
     df = check_and_add_displ_cols(read_detections_csv(csv_path))
+    shared_state.session = Session.from_dataframe(df, n_frames=N_FRAMES)
     shared_state.session.max_score = max_score
     shared_state.session.score_func = score_func
-    shared_state.session.has_prior_tracks = "track_no" in df.columns
-    shared_state.session.extra_columns = [c for c in df.columns if c not in TRACKING_COLUMNS]
     shared_state.session.output_folder = str(folder)
     shared_state.session.session_file = "session.csv"
     shared_state.session.leftover_file = "leftover.csv"
-    shared_state.session.detections = generate_positions_list(df, str(folder), n_frames=N_FRAMES)
+    (folder / "session.csv").write_text("")  # the empty session file, as the plugin creates it
     shared_state.session.propose()
     use_proposed_track()
 

@@ -6,6 +6,7 @@ import math
 import os
 
 from .detection import Detection
+from .io import TRACKING_COLUMNS
 from .tracking import generate_graph, generate_track, remove_all_successors, add_node_with_dummy_edges
 
 # value written in the extra columns for a detection added by hand, which
@@ -42,6 +43,31 @@ class Session:
         self.session_file = ''
         self.leftover_file = ''
         self.combined_file = ''
+
+    @classmethod
+    def from_dataframe(cls, df, n_frames=0):
+        """A session with the detections of a detections table: columns
+        tframe, y, x, displ_y and displ_x, optionally track_no (tracks from an
+        earlier run), and any extra columns, kept in each detection's `extra`.
+
+        Frames are indexed by their frame number (tframe), so a frame without
+        detections stays empty instead of shifting all later frames onto the
+        wrong images. There are at least n_frames frames (the number of
+        loaded images), so frames after the last detection exist too."""
+        session = cls()
+        session.has_prior_tracks = 'track_no' in df.columns
+        session.extra_columns = [c for c in df.columns if c not in TRACKING_COLUMNS]
+        num_frames = max(n_frames, int(df['tframe'].max()) + 1 if len(df) else 0)
+        session.detections = [[] for _ in range(num_frames)]
+        # Read column by column rather than row by row, so each column keeps its
+        # own type: a row mixes whole numbers with e.g. text or decimals in the
+        # extra columns, and would otherwise turn all of them into one type
+        columns = ['y', 'x', 'displ_y', 'displ_x'] + (['track_no'] if session.has_prior_tracks else [])
+        positions = zip(*(df[c].tolist() for c in columns))
+        extras = zip(*(df[c].tolist() for c in session.extra_columns)) if session.extra_columns else ([()] * len(df))
+        for t, position, extra in zip(df['tframe'].tolist(), positions, extras):
+            session.detections[int(t)].append(Detection(*position, extra=tuple(extra)))
+        return session
 
     def extra_header(self):
         """The extra columns' names for a CSV header row, each preceded by a
