@@ -1,10 +1,10 @@
-"""The state the plugin shares between its parts: what the screen shows,
-the tracking session it shows, and the files the plugin writes for it."""
+"""Everything the plugin keeps between clicks: the tracking session it
+shows, what the screen shows, and the files the plugin writes for it."""
 
 from .core.session import Session
 
 
-class SharedState:
+class PluginState:
     def __init__(self):
         self.session = Session()    # the tracking: data and actions
         self.current_frame = 0      # the frame shown
@@ -28,4 +28,4 @@ class SharedState:
         self.max_prior_track_id = None
 
 
-shared_state = SharedState()
+plugin_state = PluginState()

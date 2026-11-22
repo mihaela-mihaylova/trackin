@@ -1,6 +1,6 @@
 """The reference sessions again, played on the tracking core alone: each
 replay creates its own Session, as a program using trackin's core would,
-without napari or the plugin's shared state. The results must be exactly
+without napari or the plugin's state. The results must be exactly
 the recorded ones (data/reference/), like the plugin's reference tests."""
 
 import json

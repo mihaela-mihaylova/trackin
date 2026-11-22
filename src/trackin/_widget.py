@@ -7,7 +7,7 @@ from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
 from napari.utils.events import EventEmitter
-from .shared_state import shared_state
+from .plugin_state import plugin_state
 from .core.session import Session
 from datetime import datetime
 from .core.io import (
@@ -41,30 +41,30 @@ graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 def save_accepted_track():
     """Write the track just accepted to the session file, and to the
     combined file once a track file has been added."""
-    session = shared_state.session
+    session = plugin_state.session
     track_no = len(session.accepted)
     track = session.accepted[-1]
-    append_to_session_file(os.path.join(shared_state.output_folder, shared_state.session_file),
+    append_to_session_file(os.path.join(plugin_state.output_folder, plugin_state.session_file),
                            track_no, track, session.detections, session.extra_columns)
-    if shared_state.max_prior_track_id is not None:
-        append_to_combined_file(os.path.join(shared_state.output_folder, shared_state.combined_file),
-                                shared_state.max_prior_track_id + track_no, track,
-                                session.detections, session.extra_columns, shared_state.combined_extra_columns)
+    if plugin_state.max_prior_track_id is not None:
+        append_to_combined_file(os.path.join(plugin_state.output_folder, plugin_state.combined_file),
+                                plugin_state.max_prior_track_id + track_no, track,
+                                session.detections, session.extra_columns, plugin_state.combined_extra_columns)
 
 def save_leftover_file():
     """Write the session's available detections to the leftover file
     (nothing before a detections file is loaded, as there is no file name)."""
-    session = shared_state.session
-    if shared_state.leftover_file:
-        write_leftover_file(os.path.join(shared_state.output_folder, shared_state.leftover_file),
+    session = plugin_state.session
+    if plugin_state.leftover_file:
+        write_leftover_file(os.path.join(plugin_state.output_folder, plugin_state.leftover_file),
                             session.detections, session.extra_columns)
 
 def use_proposed_track():
     """The track being edited becomes a copy of the session's newly
     proposed track (None when no track is left). Clicks then change this
     copy, not the session's proposal."""
-    proposal = shared_state.session.proposal
-    shared_state.track = None if proposal is None else list(proposal)
+    proposal = plugin_state.session.proposal
+    plugin_state.track = None if proposal is None else list(proposal)
 
 def show_messages(messages):
     """Show the messages returned by the tracking session's actions
@@ -175,11 +175,11 @@ def choose_folder():
             return
         clear_detections_and_tracks()
         images, image_files = new_images, new_image_files
-        shared_state.current_frame = 0
+        plugin_state.current_frame = 0
         images_loaded = True
         if images:
             viewer.layers.clear()
-            viewer.add_image(images[shared_state.current_frame], name=os.path.basename(image_files[shared_state.current_frame]))
+            viewer.add_image(images[plugin_state.current_frame], name=os.path.basename(image_files[plugin_state.current_frame]))
             # napari fits the view to the image on add; use that as the
             # baseline for how far this dataset can be zoomed in/out
             fit_zoom = viewer.camera.zoom
@@ -223,24 +223,24 @@ def load_csv():
             clear_detections_and_tracks()
 
         csv_data = check_and_add_displ_cols(new_csv_data)
-        shared_state.session = Session.from_dataframe(csv_data, n_frames=len(images))
+        plugin_state.session = Session.from_dataframe(csv_data, n_frames=len(images))
 
         csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # name for file where generated tracks are saved
-        shared_state.session_file = f'track_session_{csv_filename}_{timestamp}.csv'
+        plugin_state.session_file = f'track_session_{csv_filename}_{timestamp}.csv'
         # name for file where leftover positions are preserved
-        shared_state.leftover_file = f'upd_{csv_filename}_{timestamp}.csv'
-        shared_state.output_folder = os.path.dirname(csv_path)
+        plugin_state.leftover_file = f'upd_{csv_filename}_{timestamp}.csv'
+        plugin_state.output_folder = os.path.dirname(csv_path)
         # create the empty session file, where accepted tracks are saved
-        with open(os.path.join(shared_state.output_folder, shared_state.session_file), "w") as f:
+        with open(os.path.join(plugin_state.output_folder, plugin_state.session_file), "w") as f:
             f.write("")
         csv_loaded = True
         # Build the graph and propose the first track
-        if shared_state.session.graph is None:
+        if plugin_state.session.graph is None:
             show_info("Building graph...")
-        show_messages(shared_state.session.propose())
+        show_messages(plugin_state.session.propose())
         use_proposed_track()
 
         # Compute track lines once when CSV is loaded
@@ -250,8 +250,8 @@ def load_csv():
 
         # Start inspection from the beginning, regardless of the frame
         # the viewer happened to be on before these detections were loaded
-        shared_state.current_frame = 0
-        image_slider.image_index.value = shared_state.current_frame
+        plugin_state.current_frame = 0
+        image_slider.image_index.value = plugin_state.current_frame
 
         check_and_update_image()
 
@@ -293,20 +293,20 @@ def load_track_file():
         try:
             track_df = read_track_file(csv_path)
             max_track_no = track_df['track_no'].max()
-            session = shared_state.session
+            session = plugin_state.session
             # this session's accepted tracks, numbered after the track file's
             session_df = tracks_table(session.accepted, session.detections,
                                       session.extra_columns, first_track_no=max_track_no + 1)
             combined_df, combined_extra_columns = combine_tracks(track_df, session_df)
-            combined_df.to_csv(os.path.join(shared_state.output_folder, upd_track_file), index=False)
+            combined_df.to_csv(os.path.join(plugin_state.output_folder, upd_track_file), index=False)
             if session.accepted:
                 show_info("Track File Updated. \n The track file has been successfully updated with the new tracks.")
             else:
                 show_info("Track File Added. \n The track file has been successfully added. New tracks will be added to the existing tracks.")
 
-            shared_state.combined_file = upd_track_file
-            shared_state.combined_extra_columns = combined_extra_columns
-            shared_state.max_prior_track_id = max_track_no
+            plugin_state.combined_file = upd_track_file
+            plugin_state.combined_extra_columns = combined_extra_columns
+            plugin_state.max_prior_track_id = max_track_no
 
             if track_file_label is not None:
                 track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
@@ -335,9 +335,9 @@ def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
     global viewer, container
     if images:
-        shared_state.current_frame = (shared_state.current_frame + 1) % len(images)
+        plugin_state.current_frame = (plugin_state.current_frame + 1) % len(images)
         update_image()
-        image_slider.image_index.value = shared_state.current_frame  # Sync slider value
+        image_slider.image_index.value = plugin_state.current_frame  # Sync slider value
     
     # Refocus the container after key press
     if container:
@@ -348,9 +348,9 @@ def previous_image(event=None):
     """Display the previous image in the sequence and overlay CSV data."""
     global viewer, container
     if images:
-        shared_state.current_frame = (shared_state.current_frame - 1) % len(images)
+        plugin_state.current_frame = (plugin_state.current_frame - 1) % len(images)
         update_image()
-        image_slider.image_index.value = shared_state.current_frame  # Sync slider value
+        image_slider.image_index.value = plugin_state.current_frame  # Sync slider value
     
     # Refocus the container after key press
     if container:
@@ -361,8 +361,8 @@ def previous_image(event=None):
 def image_slider(image_index: int = 0):
     """Update the displayed image based on the slider value."""
     global viewer, container
-    if image_index != shared_state.current_frame:
-        shared_state.current_frame = image_index
+    if image_index != plugin_state.current_frame:
+        plugin_state.current_frame = image_index
         update_image()
         # Refocus the container after slider change
         if container:
@@ -386,7 +386,7 @@ def update_slider_max():
     """Update the maximum value of the slider based on the number of images."""
     if images:
         image_slider.image_index.max = len(images) - 1
-        image_slider.image_index.value = shared_state.current_frame
+        image_slider.image_index.value = plugin_state.current_frame
     else:
         image_slider.image_index.max = 0
         image_slider.image_index.value = 0
@@ -415,7 +415,7 @@ def update_image():
     global viewer
     if images:
         # Get the current image and add a white border to it
-        bordered_image = add_white_border(images[shared_state.current_frame], border_size=2)
+        bordered_image = add_white_border(images[plugin_state.current_frame], border_size=2)
 
         # Store the current camera settings (zoom and center)
         current_zoom = viewer.camera.zoom
@@ -423,22 +423,22 @@ def update_image():
 
         if 'Image' in viewer.layers:
             # Just update the data of the existing image layer
-            viewer.layers['Image'].data = images[shared_state.current_frame]
+            viewer.layers['Image'].data = images[plugin_state.current_frame]
         else:
             # Create a new image layer if it doesn't exist
-            viewer.add_image(images[shared_state.current_frame], name='Image')
+            viewer.add_image(images[plugin_state.current_frame], name='Image')
 
         # Restore the camera zoom and center position
         viewer.camera.zoom = current_zoom
         viewer.camera.center = current_center
 
     # Ensure the detections and csv_data are loaded, then overlay points and lines
-    if csv_data is not None and shared_state.session.detections is not None:
+    if csv_data is not None and plugin_state.session.detections is not None:
         # Get the frame number from the current image file name
-        frame_number = int(os.path.splitext(os.path.basename(image_files[shared_state.current_frame]))[0])
+        frame_number = int(os.path.splitext(os.path.basename(image_files[plugin_state.current_frame]))[0])
         # Ensure the frame number is within the range of the detections
-        if 0 <= frame_number < len(shared_state.session.detections):
-            frame_data = shared_state.session.detections[frame_number]
+        if 0 <= frame_number < len(plugin_state.session.detections):
+            frame_data = plugin_state.session.detections[frame_number]
             # Also called for a frame without detections, so the previous
             # frame's points are cleared instead of staying on screen
             # the positions of the frame's detections, which are drawn; a
@@ -460,7 +460,7 @@ def overlay_points(frame_data):
     # For a frame without detections this is an empty array with no rows,
     # which empties the layers below.
     points = np.array([frame_data['y'], frame_data['x']]).T
-    curr_track = shared_state.track
+    curr_track = plugin_state.track
     if curr_track is None:
         show_info('No detections left.')
         return
@@ -492,7 +492,7 @@ def overlay_points(frame_data):
     border_widths = [1] * len(points)
 
     # Check if track contains detection in this frame and apply custom styles for the track point
-    track_index = curr_track[shared_state.current_frame]
+    track_index = curr_track[plugin_state.current_frame]
     if track_index != -1:
         border_colors[track_index] = 'yellow'
         sizes[track_index] = 35  # Increase the size of the track point
@@ -531,10 +531,10 @@ def overlay_points(frame_data):
 
     # --- Construct and update track lines ---
     track_points = []
-    for t in range(len(shared_state.track)):
-        track_idx = shared_state.track[t]
+    for t in range(len(plugin_state.track)):
+        track_idx = plugin_state.track[t]
         if track_idx != -1:
-            d = shared_state.session.detections[t][track_idx]
+            d = plugin_state.session.detections[t][track_idx]
             y, x = d.y, d.x
             track_points.append([y, x])
 
@@ -564,22 +564,22 @@ def overlay_points(frame_data):
 def compute_track_lines():
     """Compute line segments connecting consecutive points in the track."""
     track_points = []
-    for t in range(len(shared_state.track)):
-        track_idx = shared_state.track[t]
+    for t in range(len(plugin_state.track)):
+        track_idx = plugin_state.track[t]
         if track_idx is not None and track_idx != -1:
-            # Ensure track index is within bounds of shared_state.session.detections[t]
-            if 0 <= track_idx < len(shared_state.session.detections[t]):
-                d = shared_state.session.detections[t][track_idx]
+            # Ensure track index is within bounds of plugin_state.session.detections[t]
+            if 0 <= track_idx < len(plugin_state.session.detections[t]):
+                d = plugin_state.session.detections[t][track_idx]
                 y, x = d.y, d.x
                 track_points.append([y, x])
 
     # Create line segments only if there are at least two points in the track
     if len(track_points) > 1:
-        shared_state.track_lines = np.array(
+        plugin_state.track_lines = np.array(
             [[track_points[i], track_points[i + 1]] for i in range(len(track_points) - 1)]
         )
     else:
-        shared_state.track_lines = None  # No valid lines to draw
+        plugin_state.track_lines = None  # No valid lines to draw
 
 def delete_detection(layer, event=None, use_key=False):
     """Delete detection or track detection based on right-click or 'D' key."""
@@ -595,21 +595,21 @@ def delete_detection(layer, event=None, use_key=False):
         if clicked_index is None:
             return  # No valid point was clicked, exit
     else:  # Called using the 'D' key
-        curr_track = shared_state.track
+        curr_track = plugin_state.track
         # e.g. right after images are reloaded, before a new CSV is loaded
         if not curr_track:
             print("No detections loaded to delete with 'D' key.")
             return
-        if curr_track[shared_state.current_frame] != -1:
-            clicked_index = curr_track[shared_state.current_frame]  # Use the tracked index if available
+        if curr_track[plugin_state.current_frame] != -1:
+            clicked_index = curr_track[plugin_state.current_frame]  # Use the tracked index if available
         else:
             print("No detection found to delete with 'D' key.")
             return
 
     # If a valid point is found, determine if it's part of a track or a standard detection
     if clicked_index is not None:
-        curr_track = shared_state.track
-        if curr_track[shared_state.current_frame] == clicked_index:
+        curr_track = plugin_state.track
+        if curr_track[plugin_state.current_frame] == clicked_index:
             # Call the function for deleting track detection
             delete_det_by_key(layer)
         else:
@@ -627,21 +627,21 @@ def delete_det_by_key(layer):
     point_coords = layer.data[clicked_index].copy()
     layer.data[clicked_index] = [-1000000, -1000000]
 
-    node_name = f'D_{shared_state.current_frame}_{clicked_index}'
-    shared_state.session.delete_detection(shared_state.current_frame, clicked_index)
+    node_name = f'D_{plugin_state.current_frame}_{clicked_index}'
+    plugin_state.session.delete_detection(plugin_state.current_frame, clicked_index)
 
     # Update the track state
-    shared_state.track[shared_state.current_frame] = -1
-    show_messages(shared_state.session.propose())  # propose a new track without the deleted detection
+    plugin_state.track[plugin_state.current_frame] = -1
+    show_messages(plugin_state.session.propose())  # propose a new track without the deleted detection
     use_proposed_track()
 
     # Refresh the layer to update the visual display
     layer.refresh()
     # The new track can differ in earlier frames too, so show it from
     # frame 0, as after accepting a track or saving a segment
-    shared_state.current_frame = 0
+    plugin_state.current_frame = 0
     update_image()
-    image_slider.image_index.value = shared_state.current_frame  # Sync the slider value
+    image_slider.image_index.value = plugin_state.current_frame  # Sync the slider value
     # Move keyboard focus off the slider's number box, back to the panel,
     # so keys like D and the arrows keep working
     if container:
@@ -658,8 +658,8 @@ def delete_det_by_mouse(layer, event):
     point_coords = layer.data[clicked_index].copy()
     layer.data[clicked_index] = [-1000000, -1000000]
 
-    node_name = f'D_{shared_state.current_frame}_{clicked_index}'
-    shared_state.session.delete_detection(shared_state.current_frame, clicked_index)
+    node_name = f'D_{plugin_state.current_frame}_{clicked_index}'
+    plugin_state.session.delete_detection(plugin_state.current_frame, clicked_index)
 
     layer.refresh()
     update_image()
@@ -689,7 +689,7 @@ def on_click(layer, event):
 
         if clicked_index is not None and clicked_index >= 0:
             # If a valid point was clicked, update the track and go to the next image
-            shared_state.track[shared_state.current_frame] = clicked_index
+            plugin_state.track[plugin_state.current_frame] = clicked_index
             next_image()
         else:
             print("Clicked outside of any detection point.")
@@ -706,7 +706,7 @@ def add_detection(layer, event):
         data_coords = layer.world_to_data(event.position)
 
         # Get the dimensions of the currently displayed image
-        image_shape = images[shared_state.current_frame].shape  # This gets (height, width) for the image
+        image_shape = images[plugin_state.current_frame].shape  # This gets (height, width) for the image
 
         # Ensure the click is within the image bounds
         if (0 <= data_coords[0] < image_shape[0]) and (0 <= data_coords[1] < image_shape[1]):
@@ -724,9 +724,9 @@ def add_detection(layer, event):
             new_size_array = np.full((len(layer.data),), point_size)
 
             # Ensure the size of the track detection in the current frame is changed to 30
-            curr_track = shared_state.track
-            if curr_track[shared_state.current_frame] != -1:
-                track_index = curr_track[shared_state.current_frame]  # Get the correct track index
+            curr_track = plugin_state.track
+            if curr_track[plugin_state.current_frame] != -1:
+                track_index = curr_track[plugin_state.current_frame]  # Get the correct track index
                 new_size_array[track_index] = 30  # Set track point size to 30
 
             # Update the size array with the correct shape
@@ -734,7 +734,7 @@ def add_detection(layer, event):
             layer.border_width_is_relative = False  # Ensure the border width is absolute
 
             # Add the new detection to the tracking data and the graph
-            shared_state.session.add_detection(shared_state.current_frame, int(data_coords[0]), int(data_coords[1]))
+            plugin_state.session.add_detection(plugin_state.current_frame, int(data_coords[0]), int(data_coords[1]))
 
             # Refresh the layer to display the new point
             layer.refresh()
@@ -755,15 +755,15 @@ def add_detection(layer, event):
 
 def acceptTrack(event=None):
     """Accept the current track and move to frame 0."""
-    n_accepted = len(shared_state.session.accepted)
-    show_messages(shared_state.session.accept_track(shared_state.track))
-    if len(shared_state.session.accepted) > n_accepted:
+    n_accepted = len(plugin_state.session.accepted)
+    show_messages(plugin_state.session.accept_track(plugin_state.track))
+    if len(plugin_state.session.accepted) > n_accepted:
         save_accepted_track()
     save_leftover_file()
     use_proposed_track()
-    shared_state.current_frame = 0  # Reset to the first frame (frame 0)
+    plugin_state.current_frame = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
-    image_slider.image_index.value = shared_state.current_frame  # Sync the slider value
+    image_slider.image_index.value = plugin_state.current_frame  # Sync the slider value
     graph_updated_event()
     # Refocus the main container after handling the event
     if container:
@@ -772,22 +772,22 @@ def acceptTrack(event=None):
      
 def saveSegment(event=None):
     print("saveSegment triggered!")  # Add this line to check if the function is called
-    show_messages(shared_state.session.save_segment(shared_state.track, shared_state.current_frame))
+    show_messages(plugin_state.session.save_segment(plugin_state.track, plugin_state.current_frame))
     use_proposed_track()
-    shared_state.current_frame = 0  # Reset to the first frame (frame 0)
+    plugin_state.current_frame = 0  # Reset to the first frame (frame 0)
     update_image()
-    image_slider.image_index.value = shared_state.current_frame  # Sync the slider value
+    image_slider.image_index.value = plugin_state.current_frame  # Sync the slider value
     # Refocus the main container after handling the event
     if container:
         container.setFocus()
 
 def deleteSegment(event=None):
-    show_messages(shared_state.session.delete_segment(shared_state.track, shared_state.current_frame))
+    show_messages(plugin_state.session.delete_segment(plugin_state.track, plugin_state.current_frame))
     save_leftover_file()
     use_proposed_track()
-    shared_state.current_frame = 0  # Reset to the first frame (frame 0)
+    plugin_state.current_frame = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
-    image_slider.image_index.value = shared_state.current_frame  # Sync the slider value
+    image_slider.image_index.value = plugin_state.current_frame  # Sync the slider value
     graph_updated_event()
     # Refocus the main container after handling the event
     if container:
@@ -795,7 +795,7 @@ def deleteSegment(event=None):
 
 def deleteAllConnections(event=None):
     """Triggers the function which would delete all outgoing edges (apart from an X- or T-edge)"""
-    show_messages(shared_state.session.delete_all_connections(shared_state.track, shared_state.current_frame))
+    show_messages(plugin_state.session.delete_all_connections(plugin_state.track, plugin_state.current_frame))
     update_image()
     graph_updated_event()
     # Refocus the main container after handling the event
@@ -1001,9 +1001,9 @@ def create_path_row(description, explanation):
 def update_file_paths_display():
     """Show/hide and refresh the output-file-path rows based on current state."""
     if csv_loaded:
-        leftover_path_field.set_path(os.path.join(shared_state.output_folder, shared_state.leftover_file))
+        leftover_path_field.set_path(os.path.join(plugin_state.output_folder, plugin_state.leftover_file))
         leftover_row.setVisible(True)
-        session_path_field.set_path(os.path.join(shared_state.output_folder, shared_state.session_file))
+        session_path_field.set_path(os.path.join(plugin_state.output_folder, plugin_state.session_file))
         session_row.setVisible(True)
         # The whole Session Files card (header included) only makes sense
         # once there's a CSV loaded -- with just images loaded, there's
@@ -1016,8 +1016,8 @@ def update_file_paths_display():
         if session_files_header is not None:
             session_files_header.setVisible(False)
 
-    if shared_state.max_prior_track_id is not None:
-        upd_track_path_field.set_path(os.path.join(shared_state.output_folder, shared_state.combined_file))
+    if plugin_state.max_prior_track_id is not None:
+        upd_track_path_field.set_path(os.path.join(plugin_state.output_folder, plugin_state.combined_file))
         upd_track_row.setVisible(True)
     else:
         upd_track_row.setVisible(False)
@@ -1146,12 +1146,12 @@ def clear_detections_and_tracks():
         viewer.layers['track_lines'].refresh()  # Ensure the layer refreshes
     
     # A fresh session: no detections, graph or tracks, and no output files.
-    shared_state.session = Session()
-    shared_state.clear_files()
-    shared_state.track = []
-    shared_state.track_lines = None
-    shared_state.n_detections_shown = None
-    shared_state.n_connections_shown = None
+    plugin_state.session = Session()
+    plugin_state.clear_files()
+    plugin_state.track = []
+    plugin_state.track_lines = None
+    plugin_state.n_detections_shown = None
+    plugin_state.n_connections_shown = None
 
     # Hide all three rows unconditionally rather than routing through
     # update_file_paths_display(): that function's leftover/session
@@ -1235,22 +1235,22 @@ def update_labels():
     """Update the QLabel widgets with the current count of detections and connections."""
     global dets_label, conns_label  # Declare the variables as global to avoid NameError
 
-    if shared_state.session.graph is not None:
+    if plugin_state.session.graph is not None:
         # Compute the number of detections and connections
-        counts = shared_state.session.stats()
-        shared_state.n_detections_shown = counts["detections"]
-        shared_state.n_connections_shown = counts["connections"]
+        counts = plugin_state.session.stats()
+        plugin_state.n_detections_shown = counts["detections"]
+        plugin_state.n_connections_shown = counts["connections"]
 
         # Check if labels exist, if not create and add them to the layout
         if dets_label is None:
-            dets_label = QLabel(f"Detections: {shared_state.n_detections_shown}")
-            conns_label = QLabel(f"Connections: {shared_state.n_connections_shown}")
+            dets_label = QLabel(f"Detections: {plugin_state.n_detections_shown}")
+            conns_label = QLabel(f"Connections: {plugin_state.n_connections_shown}")
             container.layout().addWidget(dets_label)  # Add the labels to the layout dynamically
             container.layout().addWidget(conns_label)
         else:
             # If the labels already exist, just update the text
-            dets_label.setText(f"Detections: {shared_state.n_detections_shown}")
-            conns_label.setText(f"Connections: {shared_state.n_connections_shown}")
+            dets_label.setText(f"Detections: {plugin_state.n_detections_shown}")
+            conns_label.setText(f"Connections: {plugin_state.n_connections_shown}")
     else:
         # If there is no graph, remove or hide the labels (if necessary)
         if dets_label is not None and conns_label is not None:
