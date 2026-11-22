@@ -205,7 +205,6 @@ class _FakeViewer:
 
 
 def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
-    original_viewer = widget.viewer
     original_widgets = {
         name: getattr(widget, name)
         for name in (
@@ -224,7 +223,7 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
     }
 
     try:
-        widget.viewer = _FakeViewer()
+        plugin_state.viewer = _FakeViewer()
 
         widget.track_file_label = widget.ElidedPathLabel()
         widget.track_file_label.set_path("Track file loaded: old_tracks.csv")
@@ -302,7 +301,6 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
         assert widget.session_files_content.isVisible() is False
         assert widget.session_files_header.text() == "▸ Session Files"
     finally:
-        widget.viewer = original_viewer
         for name, value in original_widgets.items():
             setattr(widget, name, value)
 
@@ -411,7 +409,6 @@ def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
     visible, not hidden behind a collapsed header the user has to think to
     open -- update_file_paths_display() must expand the card whenever it
     actually updates a row's content."""
-    original_csv_loaded = widget.csv_loaded
     original_widgets = {
         name: getattr(widget, name)
         for name in (
@@ -427,7 +424,7 @@ def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
     }
 
     try:
-        widget.csv_loaded = True
+        plugin_state.csv_loaded = True
         plugin_state.output_folder = str(tmp_path)
         plugin_state.leftover_file = "updated.csv"
         plugin_state.session_file = "session.csv"
@@ -454,7 +451,6 @@ def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
         assert widget.session_files_content.isVisible() is True
         assert widget.session_files_header.text() == "▾ Session Files"
     finally:
-        widget.csv_loaded = original_csv_loaded
         for name, value in original_widgets.items():
             setattr(widget, name, value)
 
@@ -464,10 +460,10 @@ def test_update_image_draws_detections_of_file_without_track_no(monkeypatch):
     A Detection always has prior_track as its 5th value, which made
     drawing fail for such files ("4 columns passed, passed data had 5")."""
     viewer = ViewerModel()
-    monkeypatch.setattr(widget, "viewer", viewer)
-    monkeypatch.setattr(widget, "images", [np.zeros((20, 20))])
-    monkeypatch.setattr(widget, "image_files", ["0.png"])
-    monkeypatch.setattr(widget, "csv_data", pd.DataFrame())  # only needs to be "loaded"
+    monkeypatch.setattr(plugin_state, "viewer", viewer)
+    monkeypatch.setattr(plugin_state, "images", [np.zeros((20, 20))])
+    monkeypatch.setattr(plugin_state, "image_files", ["0.png"])
+    monkeypatch.setattr(plugin_state, "csv_loaded", True)
     monkeypatch.setattr(plugin_state.session, "has_prior_tracks", False)
     monkeypatch.setattr(plugin_state.session, "detections", [[Detection(10, 10), Detection(15, 5)]])
     monkeypatch.setattr(plugin_state, "track", [0])
@@ -483,10 +479,10 @@ def test_update_image_hides_deleted_detections(monkeypatch):
     must not be seen: it is drawn far off-screen, at the same place in the
     layer, so the index of a clicked point still matches its detection."""
     viewer = ViewerModel()
-    monkeypatch.setattr(widget, "viewer", viewer)
-    monkeypatch.setattr(widget, "images", [np.zeros((20, 20))])
-    monkeypatch.setattr(widget, "image_files", ["0.png"])
-    monkeypatch.setattr(widget, "csv_data", pd.DataFrame())  # only needs to be "loaded"
+    monkeypatch.setattr(plugin_state, "viewer", viewer)
+    monkeypatch.setattr(plugin_state, "images", [np.zeros((20, 20))])
+    monkeypatch.setattr(plugin_state, "image_files", ["0.png"])
+    monkeypatch.setattr(plugin_state, "csv_loaded", True)
     monkeypatch.setattr(plugin_state.session, "has_prior_tracks", False)
     monkeypatch.setattr(plugin_state.session, "detections", [[Detection(10, 10), Detection(15, 5, active=False)]])
     monkeypatch.setattr(plugin_state, "track", [0])
@@ -508,10 +504,10 @@ def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     layers but draws nothing, so the test also runs on machines without
     graphics support."""
     viewer = ViewerModel()
-    monkeypatch.setattr(widget, "viewer", viewer)
-    monkeypatch.setattr(widget, "images", [np.zeros((20, 20)), np.zeros((20, 20))])
-    monkeypatch.setattr(widget, "image_files", ["0.png", "1.png"])
-    monkeypatch.setattr(widget, "csv_data", pd.DataFrame())  # only needs to be "loaded"
+    monkeypatch.setattr(plugin_state, "viewer", viewer)
+    monkeypatch.setattr(plugin_state, "images", [np.zeros((20, 20)), np.zeros((20, 20))])
+    monkeypatch.setattr(plugin_state, "image_files", ["0.png", "1.png"])
+    monkeypatch.setattr(plugin_state, "csv_loaded", True)
     monkeypatch.setattr(plugin_state.session, "has_prior_tracks", False)
     # frame 0 has one detection, which is on the current track; frame 1 has none
     monkeypatch.setattr(plugin_state.session, "detections", [[Detection(10, 10)], []])
@@ -545,10 +541,10 @@ OPEN_SESSION_FILE = "track_session_open_dataset_20250101_000000.csv"
 def _seed_open_dataset(monkeypatch):
     """State as if a dataset (images and detections) were already open, to
     check that a refused folder or file leaves it untouched."""
-    monkeypatch.setattr(widget, "images", ["open image"])
-    monkeypatch.setattr(widget, "image_files", ["0.png"])
-    monkeypatch.setattr(widget, "images_loaded", True)
-    monkeypatch.setattr(widget, "csv_loaded", True)
+    monkeypatch.setattr(plugin_state, "images", ["open image"])
+    monkeypatch.setattr(plugin_state, "image_files", ["0.png"])
+    monkeypatch.setattr(plugin_state, "images_loaded", True)
+    monkeypatch.setattr(plugin_state, "csv_loaded", True)
     monkeypatch.setattr(plugin_state.session, "detections", [[(1, 2, 0, 0)]])
     monkeypatch.setattr(plugin_state, "track", [0])
     monkeypatch.setattr(plugin_state, "session_file", OPEN_SESSION_FILE)
@@ -569,8 +565,8 @@ def _assert_open_dataset_untouched():
     """The dataset set up by _seed_open_dataset is still loaded as it was.
     An unchanged session file name means no new session was started, so accepted
     tracks would still be saved to the open dataset's session file."""
-    assert widget.images == ["open image"]
-    assert widget.image_files == ["0.png"]
+    assert plugin_state.images == ["open image"]
+    assert plugin_state.image_files == ["0.png"]
     assert plugin_state.session.detections == [[(1, 2, 0, 0)]]
     assert plugin_state.track == [0]
     assert plugin_state.session_file == OPEN_SESSION_FILE
@@ -631,7 +627,7 @@ def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_pa
     csv_path = tmp_path / "detections.csv"
     csv_path.write_text("tframe,y,x\n0,10,10\n1,20,20\n5,30,30\n")
     _seed_open_dataset(monkeypatch)
-    monkeypatch.setattr(widget, "images", ["image 0", "image 1"])  # frames 0 and 1
+    monkeypatch.setattr(plugin_state, "images", ["image 0", "image 1"])  # frames 0 and 1
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test CSV instead of asking the user
     monkeypatch.setattr(
@@ -645,7 +641,7 @@ def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_pa
     assert title == "Detections Not Loaded"
     assert "1 detection(s) are in frame(s) 5" in text
     assert "only images for frames 0 to 1" in text
-    assert widget.images == ["image 0", "image 1"]
+    assert plugin_state.images == ["image 0", "image 1"]
     assert plugin_state.session.detections == [[(1, 2, 0, 0)]]
     assert plugin_state.track == [0]
     assert plugin_state.session_file == OPEN_SESSION_FILE
@@ -767,7 +763,7 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
         plugin_state.session, "graph",
         generate_graph(plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False),
     )
-    monkeypatch.setattr(widget, "images", [np.zeros((50, 50)), np.zeros((50, 50))])
+    monkeypatch.setattr(plugin_state, "images", [np.zeros((50, 50)), np.zeros((50, 50))])
     monkeypatch.setattr(widget, "new_point_added", False)
     # existing labels, so the detection counter just updates them
     monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
@@ -805,8 +801,8 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
     track_file = tmp_path / "previous_tracks.csv"
     track_file.write_text("tframe,y,x,displ_y,displ_x,track_no\n0,5,5,0,0,3\n")
 
-    monkeypatch.setattr(widget, "images_loaded", True)
-    monkeypatch.setattr(widget, "csv_loaded", True)
+    monkeypatch.setattr(plugin_state, "images_loaded", True)
+    monkeypatch.setattr(plugin_state, "csv_loaded", True)
     monkeypatch.setattr(widget, "track_file_label", None)
     monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
     monkeypatch.setattr(plugin_state.session, "extra_columns", ["label", "note"])
@@ -846,8 +842,8 @@ def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path,
         "0,5,5,0,0,3,4,good\n"
     )
 
-    monkeypatch.setattr(widget, "images_loaded", True)
-    monkeypatch.setattr(widget, "csv_loaded", True)
+    monkeypatch.setattr(plugin_state, "images_loaded", True)
+    monkeypatch.setattr(plugin_state, "csv_loaded", True)
     monkeypatch.setattr(widget, "track_file_label", None)
     monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
     monkeypatch.setattr(plugin_state.session, "extra_columns", ["label", "note"])
@@ -885,8 +881,8 @@ def test_load_track_file_refuses_file_not_starting_with_standard_columns(tmp_pat
     track_file = tmp_path / "not_a_track_file.csv"
     track_file.write_text("label,tframe,y,x\n7,0,5,5\n")
 
-    monkeypatch.setattr(widget, "images_loaded", True)
-    monkeypatch.setattr(widget, "csv_loaded", True)
+    monkeypatch.setattr(plugin_state, "images_loaded", True)
+    monkeypatch.setattr(plugin_state, "csv_loaded", True)
     monkeypatch.setattr(plugin_state, "output_folder", str(tmp_path))
     monkeypatch.setattr(plugin_state, "combined_file", "with_new_tracks_added_in_use.csv")
     monkeypatch.setattr(plugin_state, "max_prior_track_id", 3)

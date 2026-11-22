@@ -6,6 +6,16 @@ from .core.session import Session
 
 class PluginState:
     def __init__(self):
+        self.viewer = None          # the napari viewer the panel is in
+        self.images = []            # the loaded images (with a white border), in frame order
+        self.image_files = []       # their file names, in the same order
+        self.images_loaded = False  # a folder of images has been loaded
+        self.csv_loaded = False     # a detections file has been loaded
+        # napari's camera has no zoom limits, so scrolling could zoom out until
+        # the view is a blank speck. These are set from each image folder's
+        # fit-to-view zoom when it is loaded.
+        self.min_zoom = 0.05
+        self.max_zoom = 100.0
         self.session = Session()    # the tracking: data and actions
         self.current_frame = 0      # the frame shown
         self.track = []             # the track being edited: a copy of the session's proposal, with the user's clicks

@@ -18,19 +18,8 @@ from .core.io import (
 )
 from napari.utils.notifications import show_info
 
-viewer = None
-images = []
-image_files = []
-csv_data = None
-images_loaded = False
-csv_loaded = False
 container = None  # Global reference to the container
 
-# napari's camera has no built-in zoom limits, so scrolling can otherwise
-# zoom out until the view is a blank speck. These are recomputed relative to
-# each dataset's fit-to-view zoom once images are loaded (see choose_folder).
-MIN_ZOOM = 0.05
-MAX_ZOOM = 100.0
 ZOOM_STEP = 1.1  # multiplicative zoom change per wheel notch
 
 
@@ -81,11 +70,11 @@ left_key_held = False
 
 
 def clamp_camera_zoom(event=None):
-    """Keep the camera zoom within [MIN_ZOOM, MAX_ZOOM]."""
-    zoom = viewer.camera.zoom
-    clamped = min(max(zoom, MIN_ZOOM), MAX_ZOOM)
+    """Keep the camera zoom within the zoom limits (plugin_state.min_zoom, max_zoom)."""
+    zoom = plugin_state.viewer.camera.zoom
+    clamped = min(max(zoom, plugin_state.min_zoom), plugin_state.max_zoom)
     if clamped != zoom:
-        viewer.camera.zoom = clamped
+        plugin_state.viewer.camera.zoom = clamped
 
 def on_mouse_wheel_zoom(viewer, event):
     """Zoom the camera on plain mouse scroll, replacing napari's default
@@ -102,22 +91,21 @@ def on_mouse_wheel_zoom(viewer, event):
 
     factor = ZOOM_STEP if delta > 0 else 1 / ZOOM_STEP
     new_zoom = viewer.camera.zoom * factor
-    viewer.camera.zoom = min(max(new_zoom, MIN_ZOOM), MAX_ZOOM)
+    viewer.camera.zoom = min(max(new_zoom, plugin_state.min_zoom), plugin_state.max_zoom)
     event.handled = True
 
 def initialize_viewer(napari_viewer):
     """Initialize the Napari viewer object."""
-    global viewer
-    viewer = napari_viewer
+    plugin_state.viewer = napari_viewer
 
     # Set up key bindings for the viewer
     setup_keybindings()
 
     # Take over scroll-to-zoom so direction and range are under our control
-    viewer.mouse_wheel_callbacks.append(on_mouse_wheel_zoom)
+    plugin_state.viewer.mouse_wheel_callbacks.append(on_mouse_wheel_zoom)
 
     # Backstop in case zoom changes through some other path (e.g. reset_view)
-    viewer.camera.events.zoom.connect(clamp_camera_zoom)
+    plugin_state.viewer.camera.events.zoom.connect(clamp_camera_zoom)
 
     # Set up the timers for handling repeated key presses
     right_timer.timeout.connect(next_image)
@@ -147,14 +135,12 @@ def load_images_from_folder(folder_path):
 
 def check_and_update_image():
     """Check if both images and CSV data are loaded, then update the image."""
-    global images_loaded, csv_loaded
-    if images_loaded and csv_loaded:
+    if plugin_state.images_loaded and plugin_state.csv_loaded:
         update_image()
 
 @magicgui(call_button="Load Images", auto_call=True)
 def choose_folder():
     """Open a dialog to select a folder and load images from it."""
-    global images, image_files, viewer, images_loaded, MIN_ZOOM, MAX_ZOOM
     folder_path = QFileDialog.getExistingDirectory(None, "Select Folder with Images")
     if folder_path:
         # Check the image names before loading anything, so a folder that
@@ -174,17 +160,17 @@ def choose_folder():
             )
             return
         clear_detections_and_tracks()
-        images, image_files = new_images, new_image_files
+        plugin_state.images, plugin_state.image_files = new_images, new_image_files
         plugin_state.current_frame = 0
-        images_loaded = True
-        if images:
-            viewer.layers.clear()
-            viewer.add_image(images[plugin_state.current_frame], name=os.path.basename(image_files[plugin_state.current_frame]))
+        plugin_state.images_loaded = True
+        if plugin_state.images:
+            plugin_state.viewer.layers.clear()
+            plugin_state.viewer.add_image(plugin_state.images[plugin_state.current_frame], name=os.path.basename(plugin_state.image_files[plugin_state.current_frame]))
             # napari fits the view to the image on add; use that as the
             # baseline for how far this dataset can be zoomed in/out
-            fit_zoom = viewer.camera.zoom
-            MIN_ZOOM = fit_zoom * 0.5
-            MAX_ZOOM = fit_zoom * 30
+            fit_zoom = plugin_state.viewer.camera.zoom
+            plugin_state.min_zoom = fit_zoom * 0.5
+            plugin_state.max_zoom = fit_zoom * 30
             check_and_update_image()
             update_slider_max()
 
@@ -196,10 +182,8 @@ choose_folder.call_button.native.setToolTip(
 
 @magicgui(call_button="Load Detections", auto_call=True)
 def load_csv():
-    global csv_loaded, csv_data
     """Open a dialog to select a CSV file and load its data."""
-    print(csv_loaded)
-    if not images_loaded:
+    if not plugin_state.images_loaded:
         QMessageBox.information(None, "Load Images First", "Please load the images before loading the CSV file.")
         return
     
@@ -215,15 +199,15 @@ def load_csv():
             # a value that isn't a number in a tracking column
             QMessageBox.critical(None, "Detections Not Loaded", f"The detections file could not be read:\n\n{e}")
             return
-        frames_error = check_detection_frames(new_csv_data, len(images))
+        frames_error = check_detection_frames(new_csv_data, len(plugin_state.images))
         if frames_error:
             QMessageBox.critical(None, "Detections Not Loaded", frames_error)
             return
-        if csv_loaded:
+        if plugin_state.csv_loaded:
             clear_detections_and_tracks()
 
         csv_data = check_and_add_displ_cols(new_csv_data)
-        plugin_state.session = Session.from_dataframe(csv_data, n_frames=len(images))
+        plugin_state.session = Session.from_dataframe(csv_data, n_frames=len(plugin_state.images))
 
         csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
@@ -236,7 +220,7 @@ def load_csv():
         # create the empty session file, where accepted tracks are saved
         with open(os.path.join(plugin_state.output_folder, plugin_state.session_file), "w") as f:
             f.write("")
-        csv_loaded = True
+        plugin_state.csv_loaded = True
         # Build the graph and propose the first track
         if plugin_state.session.graph is None:
             show_info("Building graph...")
@@ -277,7 +261,7 @@ load_csv.call_button.native.setToolTip(
 def load_track_file():
     """Open a dialog to select a CSV file and load a csv with tracks generated in a previous session."""
     
-    if not images_loaded or not csv_loaded:
+    if not plugin_state.images_loaded or not plugin_state.csv_loaded:
         QMessageBox.information(None, "Load Images and Detections First.", "Please load the images and detections before loading the track file to add new tracks to.")
         return
 
@@ -333,9 +317,9 @@ load_track_file.call_button.native.setToolTip(
 # go to following image
 def next_image(event=None):
     """Display the next image in the sequence and overlay CSV data."""
-    global viewer, container
-    if images:
-        plugin_state.current_frame = (plugin_state.current_frame + 1) % len(images)
+    global container
+    if plugin_state.images:
+        plugin_state.current_frame = (plugin_state.current_frame + 1) % len(plugin_state.images)
         update_image()
         image_slider.image_index.value = plugin_state.current_frame  # Sync slider value
     
@@ -346,9 +330,9 @@ def next_image(event=None):
 # go to previous image
 def previous_image(event=None):
     """Display the previous image in the sequence and overlay CSV data."""
-    global viewer, container
-    if images:
-        plugin_state.current_frame = (plugin_state.current_frame - 1) % len(images)
+    global container
+    if plugin_state.images:
+        plugin_state.current_frame = (plugin_state.current_frame - 1) % len(plugin_state.images)
         update_image()
         image_slider.image_index.value = plugin_state.current_frame  # Sync slider value
     
@@ -360,7 +344,7 @@ def previous_image(event=None):
 @magicgui(image_index={"widget_type": "Slider", "min": 0, "max": 0, "step": 1, "label": "Frame"}, auto_call=True)
 def image_slider(image_index: int = 0):
     """Update the displayed image based on the slider value."""
-    global viewer, container
+    global container
     if image_index != plugin_state.current_frame:
         plugin_state.current_frame = image_index
         update_image()
@@ -384,8 +368,8 @@ for _qslider in image_slider.image_index.native.findChildren(QSlider):
 
 def update_slider_max():
     """Update the maximum value of the slider based on the number of images."""
-    if images:
-        image_slider.image_index.max = len(images) - 1
+    if plugin_state.images:
+        image_slider.image_index.max = len(plugin_state.images) - 1
         image_slider.image_index.value = plugin_state.current_frame
     else:
         image_slider.image_index.max = 0
@@ -412,30 +396,29 @@ def add_white_border(image, border_size=1):
 
 def update_image():
     """Update the displayed image and overlay CSV data without changing zoom level."""
-    global viewer
-    if images:
+    if plugin_state.images:
         # Get the current image and add a white border to it
-        bordered_image = add_white_border(images[plugin_state.current_frame], border_size=2)
+        bordered_image = add_white_border(plugin_state.images[plugin_state.current_frame], border_size=2)
 
         # Store the current camera settings (zoom and center)
-        current_zoom = viewer.camera.zoom
-        current_center = viewer.camera.center
+        current_zoom = plugin_state.viewer.camera.zoom
+        current_center = plugin_state.viewer.camera.center
 
-        if 'Image' in viewer.layers:
+        if 'Image' in plugin_state.viewer.layers:
             # Just update the data of the existing image layer
-            viewer.layers['Image'].data = images[plugin_state.current_frame]
+            plugin_state.viewer.layers['Image'].data = plugin_state.images[plugin_state.current_frame]
         else:
             # Create a new image layer if it doesn't exist
-            viewer.add_image(images[plugin_state.current_frame], name='Image')
+            plugin_state.viewer.add_image(plugin_state.images[plugin_state.current_frame], name='Image')
 
         # Restore the camera zoom and center position
-        viewer.camera.zoom = current_zoom
-        viewer.camera.center = current_center
+        plugin_state.viewer.camera.zoom = current_zoom
+        plugin_state.viewer.camera.center = current_center
 
-    # Ensure the detections and csv_data are loaded, then overlay points and lines
-    if csv_data is not None and plugin_state.session.detections is not None:
+    # Ensure the detections are loaded, then overlay points and lines
+    if plugin_state.csv_loaded and plugin_state.session.detections is not None:
         # Get the frame number from the current image file name
-        frame_number = int(os.path.splitext(os.path.basename(image_files[plugin_state.current_frame]))[0])
+        frame_number = int(os.path.splitext(os.path.basename(plugin_state.image_files[plugin_state.current_frame]))[0])
         # Ensure the frame number is within the range of the detections
         if 0 <= frame_number < len(plugin_state.session.detections):
             frame_data = plugin_state.session.detections[frame_number]
@@ -454,7 +437,7 @@ def overlay_points(frame_data):
 
     For a frame without detections the layers are emptied, so no points of
     another frame stay on screen."""
-    global viewer, points_layer
+    global points_layer
 
     # Extract (y, x) positions from the dataframe: one row [y, x] per detection.
     # For a frame without detections this is an empty array with no rows,
@@ -466,13 +449,13 @@ def overlay_points(frame_data):
         return
     
     # --- Main Points Layer ---
-    if 'detections' in viewer.layers:
-        points_layer = viewer.layers['detections']
+    if 'detections' in plugin_state.viewer.layers:
+        points_layer = plugin_state.viewer.layers['detections']
         # Update only the data if it has changed
         if not np.array_equal(points_layer.data, points):
             points_layer.data = points
     else:
-        points_layer = viewer.add_points(
+        points_layer = plugin_state.viewer.add_points(
             points,
             size=20,  # Default size for all detections
             face_color='transparent',
@@ -514,12 +497,12 @@ def overlay_points(frame_data):
         track_point = np.empty((0, 2))  # Empty array if no track point is present
 
     # Create or update the separate track point layer
-    if 'track_point' in viewer.layers:
-        track_layer = viewer.layers['track_point']
+    if 'track_point' in plugin_state.viewer.layers:
+        track_layer = plugin_state.viewer.layers['track_point']
         if not np.array_equal(track_layer.data, track_point):
             track_layer.data = track_point
     else:
-        track_layer = viewer.add_points(
+        track_layer = plugin_state.viewer.add_points(
             track_point,
             size=35,  # Larger size for the track point
             face_color='transparent',
@@ -540,12 +523,12 @@ def overlay_points(frame_data):
 
     if len(track_points) > 1:
         lines = np.array([[track_points[i], track_points[i + 1]] for i in range(len(track_points) - 1)])
-        if 'track_lines' in viewer.layers:
-            if not np.array_equal(viewer.layers['track_lines'].data, lines):
-                viewer.layers['track_lines'].data = lines
+        if 'track_lines' in plugin_state.viewer.layers:
+            if not np.array_equal(plugin_state.viewer.layers['track_lines'].data, lines):
+                plugin_state.viewer.layers['track_lines'].data = lines
         else:
             # Create the shapes layer for the track lines if it doesn't exist
-            viewer.add_shapes(
+            plugin_state.viewer.add_shapes(
                 lines,
                 shape_type='line',
                 edge_width=1,
@@ -554,11 +537,11 @@ def overlay_points(frame_data):
                 face_color='transparent'
             )
     else:
-        if 'track_lines' in viewer.layers:
-            viewer.layers['track_lines'].data = np.empty((0, 2, 2))
+        if 'track_lines' in plugin_state.viewer.layers:
+            plugin_state.viewer.layers['track_lines'].data = np.empty((0, 2, 2))
 
     # Set the points layer as active to enable further interactions
-    viewer.layers.selection.active = points_layer
+    plugin_state.viewer.layers.selection.active = points_layer
 
 
 def compute_track_lines():
@@ -706,7 +689,7 @@ def add_detection(layer, event):
         data_coords = layer.world_to_data(event.position)
 
         # Get the dimensions of the currently displayed image
-        image_shape = images[plugin_state.current_frame].shape  # This gets (height, width) for the image
+        image_shape = plugin_state.images[plugin_state.current_frame].shape  # This gets (height, width) for the image
 
         # Ensure the click is within the image bounds
         if (0 <= data_coords[0] < image_shape[0]) and (0 <= data_coords[1] < image_shape[1]):
@@ -810,13 +793,13 @@ def reset_new_point_flag():
 
 def setup_keybindings():
     """Set up key bindings for the viewer."""
-    viewer.bind_key('Right', handle_right)  # Right arrow key to move to the next image
-    viewer.bind_key('Left', handle_left)  # Left arrow key to move to the previous image
-    viewer.bind_key('D', lambda event: delete_detection(viewer.layers.selection.active, use_key=True))  # Trigger only for D key
-    viewer.bind_key('Shift-Q', acceptTrack)  
-    viewer.bind_key('W', saveSegment) # save correct segment
-    viewer.bind_key('Shift-Z', deleteSegment) # delete a whole segment
-    viewer.bind_key('X', deleteAllConnections) # delete all connections from a node, apart from the D-X edge
+    plugin_state.viewer.bind_key('Right', handle_right)  # Right arrow key to move to the next image
+    plugin_state.viewer.bind_key('Left', handle_left)  # Left arrow key to move to the previous image
+    plugin_state.viewer.bind_key('D', lambda event: delete_detection(plugin_state.viewer.layers.selection.active, use_key=True))  # Trigger only for D key
+    plugin_state.viewer.bind_key('Shift-Q', acceptTrack)  
+    plugin_state.viewer.bind_key('W', saveSegment) # save correct segment
+    plugin_state.viewer.bind_key('Shift-Z', deleteSegment) # delete a whole segment
+    plugin_state.viewer.bind_key('X', deleteAllConnections) # delete all connections from a node, apart from the D-X edge
 
 def show_help():
     """Display a dialog listing the keyboard and mouse shortcuts."""
@@ -1000,7 +983,7 @@ def create_path_row(description, explanation):
 
 def update_file_paths_display():
     """Show/hide and refresh the output-file-path rows based on current state."""
-    if csv_loaded:
+    if plugin_state.csv_loaded:
         leftover_path_field.set_path(os.path.join(plugin_state.output_folder, plugin_state.leftover_file))
         leftover_row.setVisible(True)
         session_path_field.set_path(os.path.join(plugin_state.output_folder, plugin_state.session_file))
@@ -1026,7 +1009,7 @@ def update_file_paths_display():
     # newly added file (e.g. from "Add Track File") is immediately visible
     # rather than hidden behind a collapsed header the user has to think to
     # open. Only relevant once the header itself is showing (csv_loaded).
-    if csv_loaded and session_files_content is not None:
+    if plugin_state.csv_loaded and session_files_content is not None:
         set_session_files_expanded(True)
 
 class TrackinWidget(QWidget):
@@ -1127,23 +1110,22 @@ class TrackinWidget(QWidget):
         # Set focus policy and initially focus the container
         container.setFocusPolicy(Qt.StrongFocus)
         container.setFocus()
-        viewer.window.qt_viewer.dockLayerList.setVisible(False)
-        viewer.window.qt_viewer.dockLayerControls.setVisible(False)
+        plugin_state.viewer.window.qt_viewer.dockLayerList.setVisible(False)
+        plugin_state.viewer.window.qt_viewer.dockLayerControls.setVisible(False)
 
 
 def clear_detections_and_tracks():
     """Explicitly clear detection points and track lines from the Napari viewer."""
-    global viewer
     
     # Check and clear the 'detections' layer if it exists
-    if 'detections' in viewer.layers:
-        viewer.layers['detections'].data = np.empty((0, 2))
-        viewer.layers['detections'].refresh()  # Ensure the layer refreshes
+    if 'detections' in plugin_state.viewer.layers:
+        plugin_state.viewer.layers['detections'].data = np.empty((0, 2))
+        plugin_state.viewer.layers['detections'].refresh()  # Ensure the layer refreshes
     
     # Check and clear the 'track_lines' layer if it exists
-    if 'track_lines' in viewer.layers:
-        viewer.layers['track_lines'].data = np.empty((0, 2, 2))
-        viewer.layers['track_lines'].refresh()  # Ensure the layer refreshes
+    if 'track_lines' in plugin_state.viewer.layers:
+        plugin_state.viewer.layers['track_lines'].data = np.empty((0, 2, 2))
+        plugin_state.viewer.layers['track_lines'].refresh()  # Ensure the layer refreshes
     
     # A fresh session: no detections, graph or tracks, and no output files.
     plugin_state.session = Session()
@@ -1155,8 +1137,8 @@ def clear_detections_and_tracks():
 
     # Hide all three rows unconditionally rather than routing through
     # update_file_paths_display(): that function's leftover/session
-    # visibility is gated on the module-level csv_loaded flag, which is
-    # never reset to False here or in choose_folder() -- so if a CSV had
+    # visibility is gated on plugin_state.csv_loaded, which is never
+    # reset to False here or in choose_folder() -- so if a CSV had
     # already been loaded once this session and images are reloaded
     # without a new CSV yet, csv_loaded is still stale True and would
     # re-show the *previous* dataset's file paths. Any caller that goes on
