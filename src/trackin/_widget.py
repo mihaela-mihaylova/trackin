@@ -2,12 +2,14 @@ import os
 import pandas as pd
 from magicgui import magicgui
 from skimage.io import imread
-from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QDialog, QSlider, QApplication, QSizePolicy, QToolTip
+from qtpy.QtWidgets import QFileDialog, QMessageBox, QWidget, QVBoxLayout, QLabel, QPushButton, QSlider
 from qtpy.QtCore import Qt, QTimer
 import napari
 import numpy as np
 from napari.utils.events import EventEmitter
 from .plugin_state import plugin_state
+from ._help_dialog import show_help
+from ._session_files import ElidedPathLabel, create_path_row
 from .core.session import Session
 from datetime import datetime
 from .core.io import (
@@ -801,69 +803,6 @@ def setup_keybindings():
     plugin_state.viewer.bind_key('Shift-Z', deleteSegment) # delete a whole segment
     plugin_state.viewer.bind_key('X', deleteAllConnections) # delete all connections from a node, apart from the D-X edge
 
-def show_help():
-    """Display a dialog listing the keyboard and mouse shortcuts."""
-
-    def section(title, rows):
-        row_html = "".join(
-            f'<tr><td style="padding:2px 18px 2px 0; white-space:nowrap;">'
-            f'<code style="background:#3a3a3a; color:#eee; padding:1px 6px; '
-            f'border-radius:3px;">{key}</code></td>'
-            f'<td style="padding:2px 0;">{desc}</td></tr>'
-            for key, desc in rows
-        )
-        return (
-            f'<p style="margin:14px 0 4px 0; font-size:12pt; font-weight:600;">{title}</p>'
-            f'<table style="border-collapse:collapse;">{row_html}</table>'
-        )
-
-    help_html = (
-        '<div style="font-size:10.5pt;">'
-        + section(
-            "Navigation",
-            [
-                ("Right Arrow", "Next frame (hold to scroll continuously)"),
-                ("Left Arrow", "Previous frame (hold to scroll continuously)"),
-                ("Slider", "Jump to a specific frame"),
-            ],
-        )
-        + section(
-            "Mouse (on the image)",
-            [
-                ("Left-click", "Add the clicked detection to the current track and advance to the next frame"),
-                ("Shift + Left-click", "Add a new detection at that position"),
-                ("Right-click", "Delete the clicked detection"),
-            ],
-        )
-        + section(
-            "Keyboard shortcuts",
-            [
-                ("D", "Delete the tracked detection in the current frame"),
-                ("Shift+Q", "Accept the current track"),
-                ("W", "Save the current segment (up to the current frame)"),
-                ("Shift+Z", "Delete the current segment (up to the current frame)"),
-                ("X", "Delete all outgoing connections from the current node"),
-            ],
-        )
-        + "</div>"
-    )
-
-    dialog = QDialog(None)
-    dialog.setWindowTitle("Trackin Help")
-    dialog.setMinimumWidth(480)
-
-    layout = QVBoxLayout(dialog)
-    label = QLabel(help_html)
-    label.setTextFormat(Qt.RichText)
-    label.setWordWrap(True)
-    layout.addWidget(label)
-
-    close_button = QPushButton("Close")
-    close_button.clicked.connect(dialog.accept)
-    layout.addWidget(close_button)
-
-    dialog.exec_()
-
 track_file_label = None  # Shows which track file was last loaded, if any
 
 # Persistent, copyable output-file-path rows (see create_path_row / update_file_paths_display)
@@ -886,100 +825,6 @@ def set_session_files_expanded(expanded):
 
 def toggle_session_files():
     set_session_files_expanded(not session_files_content.isVisible())
-
-class ElidedPathLabel(QLabel):
-    """A QLabel that displays a long path with an ellipsis instead of
-    forcing its row (and so the sidebar panel) wider than the space
-    actually available, while keeping the untruncated path (in
-    .full_path, and as this label's tooltip) available for copying.
-    Re-elides on resize so it stays correct if the panel is resized."""
-
-    def __init__(self):
-        super().__init__("")
-        self.full_path = ""
-        # QSizePolicy.Ignored means Qt's layout engine never lets this
-        # label's text length dictate how wide its row/panel must be --
-        # it always shrinks to whatever width it's actually given.
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.setMinimumWidth(0)
-
-    def set_path(self, path):
-        self.full_path = path
-        self.setToolTip(path)
-        self._update_elided_text()
-
-    def _update_elided_text(self):
-        elided = self.fontMetrics().elidedText(self.full_path, Qt.ElideMiddle, self.width())
-        super().setText(elided)
-
-    def resizeEvent(self, event):
-        self._update_elided_text()
-        super().resizeEvent(event)
-
-def show_field_explanation(button, explanation):
-    """Show a click-triggered tooltip bubble explaining a field, positioned
-    at the button that was clicked. Dismisses automatically on click-
-    elsewhere or mouse-move, same as a normal hover tooltip would."""
-    QToolTip.showText(button.mapToGlobal(button.rect().bottomLeft()), explanation, button)
-
-def create_info_button(explanation):
-    """Build a small pale-yellow 'i' button that shows explanation in a
-    click-triggered tooltip bubble. Uses 'i' rather than '?' and a
-    deliberately different color from the blue Help button, since that
-    button's '?' is reserved for the keybinding cheatsheet -- this is a
-    small, single-field hint, a different kind of help entirely."""
-    info_button = QPushButton("i")
-    info_button.setFixedSize(11, 11)
-    info_button.setCursor(Qt.PointingHandCursor)
-    info_button.setStyleSheet(
-        "QPushButton {"
-        "  background-color: #FFFFE0;"
-        "  color: black;"
-        "  border: 1px solid #d9c05a;"
-        "  border-radius: 5px;"
-        "  font-weight: bold;"
-        "  font-style: italic;"
-        "  font-size: 8px;"
-        "  padding: 0px;"
-        "}"
-        "QPushButton:hover { background-color: #FFF8B0; }"
-        "QPushButton:pressed { background-color: #FFEE99; }"
-    )
-    info_button.clicked.connect(lambda: show_field_explanation(info_button, explanation))
-    return info_button
-
-def create_path_row(description, explanation):
-    """Build a labeled, copyable file-path row: a description label (with a
-    small info button explaining what the file contains) above an
-    ellipsis-truncated path (full path on hover) with a Copy button. Returns
-    (row_widget, path_label) so callers can toggle the row's visibility and
-    update its path later."""
-    row_widget = QWidget()
-    row_layout = QVBoxLayout(row_widget)
-    row_layout.setContentsMargins(0, 0, 0, 0)
-    row_layout.setSpacing(2)
-
-    label_row_layout = QHBoxLayout()
-    description_label = QLabel(description)
-    description_label.setStyleSheet("font-weight: 600; font-size: 10pt;")
-    label_row_layout.addWidget(description_label)
-    label_row_layout.addWidget(create_info_button(explanation))
-    label_row_layout.addStretch()
-    row_layout.addLayout(label_row_layout)
-
-    path_row_layout = QHBoxLayout()
-    path_label = ElidedPathLabel()
-    path_row_layout.addWidget(path_label, stretch=1)
-
-    copy_button = QPushButton("Copy")
-    copy_button.setFixedWidth(50)
-    # Read the label's current full path at click time rather than capturing
-    # one now, since this row's widget is reused and updated across loads
-    copy_button.clicked.connect(lambda: QApplication.clipboard().setText(path_label.full_path))
-    path_row_layout.addWidget(copy_button)
-
-    row_layout.addLayout(path_row_layout)
-    return row_widget, path_label
 
 def update_file_paths_display():
     """Show/hide and refresh the output-file-path rows based on current state."""
