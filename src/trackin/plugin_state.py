@@ -19,7 +19,6 @@ class PluginState:
         self.session = Session()    # the tracking: data and actions
         self.current_frame = 0      # the frame shown
         self.track = []             # the track being edited: a copy of the session's proposal, with the user's clicks
-        self.track_lines = None     # the lines drawn for the current track
         self.n_detections_shown = None        # the "Detections" number shown
         self.n_connections_shown = None        # the "Connections" number shown
         self.clear_files()

@@ -6,6 +6,7 @@ import pandas as pd
 from napari.components import ViewerModel
 from skimage.io import imsave
 
+import trackin._layers as _layers
 import trackin._widget as widget
 from trackin.core.detection import Detection
 from trackin.core.session import Session
@@ -252,7 +253,6 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
         # track file) had already happened for the *previous* dataset
         plugin_state.session.detections = [[(1, 2, 0, 0)]]
         plugin_state.track = [0]
-        plugin_state.track_lines = np.array([[[1, 2], [3, 4]]])
         plugin_state.session.has_prior_tracks = True
         plugin_state.max_prior_track_id = 7
         plugin_state.session.graph = object()  # value doesn't matter, only that it's reset to None
@@ -269,7 +269,6 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
 
         assert plugin_state.session.detections == []
         assert plugin_state.track == []
-        assert plugin_state.track_lines is None
         assert plugin_state.session.has_prior_tracks is False
         assert plugin_state.max_prior_track_id is None
         assert plugin_state.session.graph is None
@@ -469,7 +468,7 @@ def test_update_image_draws_detections_of_file_without_track_no(monkeypatch):
     monkeypatch.setattr(plugin_state, "track", [0])
     monkeypatch.setattr(plugin_state, "current_frame", 0)
 
-    widget.update_image()
+    _layers.update_image()
 
     assert len(viewer.layers["detections"].data) == 2
 
@@ -488,7 +487,7 @@ def test_update_image_hides_deleted_detections(monkeypatch):
     monkeypatch.setattr(plugin_state, "track", [0])
     monkeypatch.setattr(plugin_state, "current_frame", 0)
 
-    widget.update_image()
+    _layers.update_image()
 
     points = viewer.layers["detections"].data.tolist()
     assert points == [[10, 10], [-1000000, -1000000]]
@@ -514,12 +513,12 @@ def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     monkeypatch.setattr(plugin_state, "track", [0, -1])
 
     monkeypatch.setattr(plugin_state, "current_frame", 0)
-    widget.update_image()
+    _layers.update_image()
     assert len(viewer.layers["detections"].data) == 1
     assert len(viewer.layers["track_point"].data) == 1
 
     monkeypatch.setattr(plugin_state, "current_frame", 1)
-    widget.update_image()
+    _layers.update_image()
     assert len(viewer.layers["detections"].data) == 0
     assert len(viewer.layers["track_point"].data) == 0
 
