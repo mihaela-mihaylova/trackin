@@ -1,7 +1,6 @@
 """The state the plugin shares between its parts: what the screen shows,
-and the tracking session it shows."""
+the tracking session it shows, and the files the plugin writes for it."""
 
-from .core.io import NO_VALUE, csv_value
 from .core.session import Session
 
 
@@ -13,6 +12,20 @@ class SharedState:
         self.track_lines = None     # the lines drawn for the current track
         self.n_detections_shown = None        # the "Detections" number shown
         self.n_connections_shown = None        # the "Connections" number shown
+        self.clear_files()
+
+    def clear_files(self):
+        """No output files: the state before a detections file is loaded.
+        The blank names make any stray write fail loudly (e.g.
+        IsADirectoryError) rather than write into an earlier dataset's files."""
+        self.output_folder = ''     # the detections file's folder, where all output files go
+        self.session_file = ''      # the tracks accepted in this session
+        self.leftover_file = ''     # the detections not yet used
+        self.combined_file = ''     # a loaded track file's tracks plus this session's ('' until one is added)
+        # the combined file's extra columns: the track file's, then the detections file's
+        self.combined_extra_columns = []
+        # the highest track number in the loaded track file; None until one is added
+        self.max_prior_track_id = None
 
 
 shared_state = SharedState()

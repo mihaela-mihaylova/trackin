@@ -20,9 +20,6 @@ def load(detections, folder, max_score=1600, score_func="squared"):
         check_and_add_displ_cols(read_detections_csv(csv_path)), n_frames=N_FRAMES)
     session.max_score = max_score
     session.score_func = score_func
-    session.output_folder = str(folder)
-    session.session_file = "session.csv"
-    session.leftover_file = "leftover.csv"
     session.propose()
     return session
 

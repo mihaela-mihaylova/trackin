@@ -255,12 +255,14 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
         shared_state.track = [0]
         shared_state.track_lines = np.array([[[1, 2], [3, 4]]])
         shared_state.session.has_prior_tracks = True
-        shared_state.session.max_prior_track_id = 7
+        shared_state.max_prior_track_id = 7
         shared_state.session.graph = object()  # value doesn't matter, only that it's reset to None
         shared_state.session.accepted = [[0], [0], [0]]  # three tracks accepted before
-        shared_state.session.session_file = "track_session_old_20250101_000000.csv"
-        shared_state.session.leftover_file = "upd_old_20250101_000000.csv"
-        shared_state.session.combined_file = "with_new_tracks_added_old_20250101_000000.csv"
+        shared_state.session_file = "track_session_old_20250101_000000.csv"
+        shared_state.leftover_file = "upd_old_20250101_000000.csv"
+        shared_state.combined_file = "with_new_tracks_added_old_20250101_000000.csv"
+        shared_state.combined_extra_columns = ["label"]
+        shared_state.output_folder = "/old/dataset"
         shared_state.n_detections_shown = 42
         shared_state.n_connections_shown = 99
 
@@ -270,12 +272,14 @@ def test_clear_detections_and_tracks_resets_shared_state_and_ui():
         assert shared_state.track == []
         assert shared_state.track_lines is None
         assert shared_state.session.has_prior_tracks is False
-        assert shared_state.session.max_prior_track_id is None
+        assert shared_state.max_prior_track_id is None
         assert shared_state.session.graph is None
         assert shared_state.session.accepted == []
-        assert shared_state.session.session_file == ''
-        assert shared_state.session.leftover_file == ''
-        assert shared_state.session.combined_file == ''
+        assert shared_state.session_file == ''
+        assert shared_state.leftover_file == ''
+        assert shared_state.combined_file == ''
+        assert shared_state.combined_extra_columns == []
+        assert shared_state.output_folder == ''
         assert shared_state.n_detections_shown is None
         assert shared_state.n_connections_shown is None
 
@@ -338,8 +342,8 @@ def test_delete_det_by_key_writes_updated_detections_file(tmp_path):
         shared_state.session.detections = [[Detection(10, 20), Detection(30, 40)]]
         shared_state.session.has_prior_tracks = False
         shared_state.track = [-1]
-        shared_state.session.output_folder = str(tmp_path)
-        shared_state.session.leftover_file = "updated.csv"
+        shared_state.output_folder = str(tmp_path)
+        shared_state.leftover_file = "updated.csv"
         shared_state.session.graph = generate_graph(
             shared_state.session.detections, max_score=1600, score_func="squared", tracked=False
         )
@@ -363,8 +367,8 @@ def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
     monkeypatch.setattr(shared_state.session, "has_prior_tracks", False)
     monkeypatch.setattr(shared_state, "track", [0, 0])
     monkeypatch.setattr(shared_state, "current_frame", 1)  # on frame 1
-    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "leftover_file", "updated.csv")
+    monkeypatch.setattr(shared_state, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state, "leftover_file", "updated.csv")
     monkeypatch.setattr(shared_state.session, "graph", generate_graph(
         shared_state.session.detections, max_score=1600, score_func="squared", tracked=False))
     monkeypatch.setattr(widget, "clicked_index", 0)
@@ -383,8 +387,8 @@ def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
         shared_state.current_frame = 0
         shared_state.session.detections = [[Detection(10, 20), Detection(30, 40)]]
         shared_state.session.has_prior_tracks = False
-        shared_state.session.output_folder = str(tmp_path)
-        shared_state.session.leftover_file = "updated.csv"
+        shared_state.output_folder = str(tmp_path)
+        shared_state.leftover_file = "updated.csv"
         shared_state.session.graph = generate_graph(
             shared_state.session.detections, max_score=1600, score_func="squared", tracked=False
         )
@@ -424,10 +428,10 @@ def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
 
     try:
         widget.csv_loaded = True
-        shared_state.session.output_folder = str(tmp_path)
-        shared_state.session.leftover_file = "updated.csv"
-        shared_state.session.session_file = "session.csv"
-        shared_state.session.max_prior_track_id = None
+        shared_state.output_folder = str(tmp_path)
+        shared_state.leftover_file = "updated.csv"
+        shared_state.session_file = "session.csv"
+        shared_state.max_prior_track_id = None
 
         widget.leftover_row, widget.leftover_path_field = widget.create_path_row(
             "Leftover detections", "..."
@@ -547,7 +551,7 @@ def _seed_open_dataset(monkeypatch):
     monkeypatch.setattr(widget, "csv_loaded", True)
     monkeypatch.setattr(shared_state.session, "detections", [[(1, 2, 0, 0)]])
     monkeypatch.setattr(shared_state, "track", [0])
-    monkeypatch.setattr(shared_state.session, "session_file", OPEN_SESSION_FILE)
+    monkeypatch.setattr(shared_state, "session_file", OPEN_SESSION_FILE)
 
 
 def _record_critical_messages(monkeypatch):
@@ -569,7 +573,7 @@ def _assert_open_dataset_untouched():
     assert widget.image_files == ["0.png"]
     assert shared_state.session.detections == [[(1, 2, 0, 0)]]
     assert shared_state.track == [0]
-    assert shared_state.session.session_file == OPEN_SESSION_FILE
+    assert shared_state.session_file == OPEN_SESSION_FILE
 
 
 def test_choose_folder_refuses_missing_image_and_keeps_open_dataset(tmp_path, monkeypatch):
@@ -644,7 +648,7 @@ def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_pa
     assert widget.images == ["image 0", "image 1"]
     assert shared_state.session.detections == [[(1, 2, 0, 0)]]
     assert shared_state.track == [0]
-    assert shared_state.session.session_file == OPEN_SESSION_FILE
+    assert shared_state.session_file == OPEN_SESSION_FILE
 
 
 # --- Extra columns of the detections file (e.g. label, area) ---------------
@@ -723,10 +727,10 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     ])
     monkeypatch.setattr(shared_state.session, "extra_columns", ["label", "note"])
     monkeypatch.setattr(shared_state, "track", [0, 0])  # first detection of frame 0, then of frame 1
-    monkeypatch.setattr(shared_state.session, "max_prior_track_id", None)
-    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "session_file", "session.csv")
-    monkeypatch.setattr(shared_state.session, "leftover_file", "leftover.csv")
+    monkeypatch.setattr(shared_state, "max_prior_track_id", None)
+    monkeypatch.setattr(shared_state, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state, "session_file", "session.csv")
+    monkeypatch.setattr(shared_state, "leftover_file", "leftover.csv")
     monkeypatch.setattr(
         shared_state.session, "graph",
         generate_graph(shared_state.session.detections, max_score=1600, score_func="squared", tracked=False),
@@ -757,8 +761,8 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(shared_state.session, "extra_columns", ["label"])
     monkeypatch.setattr(shared_state, "track", [0, 0])
     monkeypatch.setattr(shared_state, "current_frame", 0)
-    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "leftover_file", "leftover.csv")
+    monkeypatch.setattr(shared_state, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state, "leftover_file", "leftover.csv")
     monkeypatch.setattr(
         shared_state.session, "graph",
         generate_graph(shared_state.session.detections, max_score=1600, score_func="squared", tracked=False),
@@ -810,9 +814,9 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
     monkeypatch.setattr(shared_state.session, "detections",
                         [[Detection(10, 10, active=False, extra=(7, "cell_A"))]])
     monkeypatch.setattr(shared_state.session, "accepted", [[0]])
-    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "combined_file", "")
-    monkeypatch.setattr(shared_state.session, "max_prior_track_id", None)
+    monkeypatch.setattr(shared_state, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state, "combined_file", "")
+    monkeypatch.setattr(shared_state, "max_prior_track_id", None)
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test track file instead of asking the user
     monkeypatch.setattr(
@@ -822,7 +826,7 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
     widget.load_track_file()
 
     assert messages == []
-    combined = (tmp_path / shared_state.session.combined_file).read_text().splitlines()
+    combined = (tmp_path / shared_state.combined_file).read_text().splitlines()
     assert combined == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
         "0,5,5,0,0,3,-1,-1",  # from the loaded track file: no extra values
@@ -847,14 +851,14 @@ def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path,
     monkeypatch.setattr(widget, "track_file_label", None)
     monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
     monkeypatch.setattr(shared_state.session, "extra_columns", ["label", "note"])
-    monkeypatch.setattr(shared_state.session, "combined_extra_columns", [])
+    monkeypatch.setattr(shared_state, "combined_extra_columns", [])
     # one track accepted in this session (detection 0 of frame 0)
     monkeypatch.setattr(shared_state.session, "detections",
                         [[Detection(10, 10, active=False, extra=(7, "cell_A"))]])
     monkeypatch.setattr(shared_state.session, "accepted", [[0]])
-    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "combined_file", "")
-    monkeypatch.setattr(shared_state.session, "max_prior_track_id", None)
+    monkeypatch.setattr(shared_state, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state, "combined_file", "")
+    monkeypatch.setattr(shared_state, "max_prior_track_id", None)
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test track file instead of asking the user
     monkeypatch.setattr(
@@ -864,8 +868,8 @@ def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path,
     widget.load_track_file()
 
     assert messages == []
-    assert shared_state.session.combined_extra_columns == ["label", "quality", "note"]
-    combined = (tmp_path / shared_state.session.combined_file).read_text().splitlines()
+    assert shared_state.combined_extra_columns == ["label", "quality", "note"]
+    combined = (tmp_path / shared_state.combined_file).read_text().splitlines()
     assert combined == [
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
         "0,5,5,0,0,3,4,good,-1",  # from the track file: no "note"
@@ -883,9 +887,9 @@ def test_load_track_file_refuses_file_not_starting_with_standard_columns(tmp_pat
 
     monkeypatch.setattr(widget, "images_loaded", True)
     monkeypatch.setattr(widget, "csv_loaded", True)
-    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "combined_file", "with_new_tracks_added_in_use.csv")
-    monkeypatch.setattr(shared_state.session, "max_prior_track_id", 3)
+    monkeypatch.setattr(shared_state, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state, "combined_file", "with_new_tracks_added_in_use.csv")
+    monkeypatch.setattr(shared_state, "max_prior_track_id", 3)
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test file instead of asking the user
     monkeypatch.setattr(
@@ -899,8 +903,8 @@ def test_load_track_file_refuses_file_not_starting_with_standard_columns(tmp_pat
     assert title == "Track File Not Loaded"
     assert "must start with these columns, in this order: tframe, y, x, displ_y, displ_x, track_no" in text
     assert "It starts with: label, tframe, y, x." in text
-    assert shared_state.session.combined_file == "with_new_tracks_added_in_use.csv"
-    assert shared_state.session.max_prior_track_id == 3
+    assert shared_state.combined_file == "with_new_tracks_added_in_use.csv"
+    assert shared_state.max_prior_track_id == 3
 
 
 def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeypatch):
@@ -916,13 +920,13 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
     monkeypatch.setattr(shared_state.session, "detections",
                         [[Detection(10, 10, extra=(7, "cell_A"))], [Detection(12, 12, extra=(8, "cell_A"))]])
     monkeypatch.setattr(shared_state.session, "extra_columns", ["label", "note"])
-    monkeypatch.setattr(shared_state.session, "combined_extra_columns", ["label", "quality", "note"])
+    monkeypatch.setattr(shared_state, "combined_extra_columns", ["label", "quality", "note"])
     monkeypatch.setattr(shared_state, "track", [0, 0])
-    monkeypatch.setattr(shared_state.session, "max_prior_track_id", 3)
-    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "session_file", "session.csv")
-    monkeypatch.setattr(shared_state.session, "leftover_file", "leftover.csv")
-    monkeypatch.setattr(shared_state.session, "combined_file", "combined.csv")
+    monkeypatch.setattr(shared_state, "max_prior_track_id", 3)
+    monkeypatch.setattr(shared_state, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state, "session_file", "session.csv")
+    monkeypatch.setattr(shared_state, "leftover_file", "leftover.csv")
+    monkeypatch.setattr(shared_state, "combined_file", "combined.csv")
     monkeypatch.setattr(
         shared_state.session, "graph",
         generate_graph(shared_state.session.detections, max_score=1600, score_func="squared", tracked=False),
@@ -1045,9 +1049,9 @@ def test_accept_and_delete_segment_write_the_leftover_file(tmp_path, monkeypatch
                         [[Detection(10, 10), Detection(50, 50)], [Detection(12, 12), Detection(52, 52)]])
     monkeypatch.setattr(shared_state.session, "graph", generate_graph(
         shared_state.session.detections, max_score=1600, score_func="squared", tracked=False))
-    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "session_file", "session.csv")
-    monkeypatch.setattr(shared_state.session, "leftover_file", "leftover.csv")
+    monkeypatch.setattr(shared_state, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state, "session_file", "session.csv")
+    monkeypatch.setattr(shared_state, "leftover_file", "leftover.csv")
     # existing labels, so the detection counter just updates them
     monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
     monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))
@@ -1072,11 +1076,11 @@ def test_accept_writes_the_session_and_combined_files(tmp_path, monkeypatch):
                         [[Detection(10, 10), Detection(50, 50)], [Detection(12, 12), Detection(52, 52)]])
     monkeypatch.setattr(shared_state.session, "graph", generate_graph(
         shared_state.session.detections, max_score=1600, score_func="squared", tracked=False))
-    monkeypatch.setattr(shared_state.session, "output_folder", str(tmp_path))
-    monkeypatch.setattr(shared_state.session, "session_file", "session.csv")
-    monkeypatch.setattr(shared_state.session, "leftover_file", "leftover.csv")
-    monkeypatch.setattr(shared_state.session, "combined_file", "combined.csv")
-    monkeypatch.setattr(shared_state.session, "max_prior_track_id", 3)  # a track file with tracks 1-3 was added
+    monkeypatch.setattr(shared_state, "output_folder", str(tmp_path))
+    monkeypatch.setattr(shared_state, "session_file", "session.csv")
+    monkeypatch.setattr(shared_state, "leftover_file", "leftover.csv")
+    monkeypatch.setattr(shared_state, "combined_file", "combined.csv")
+    monkeypatch.setattr(shared_state, "max_prior_track_id", 3)  # a track file with tracks 1-3 was added
     # existing labels, so the detection counter just updates them
     monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
     monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))

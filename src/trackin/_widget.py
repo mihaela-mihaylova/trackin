@@ -44,19 +44,19 @@ def save_accepted_track():
     session = shared_state.session
     track_no = len(session.accepted)
     track = session.accepted[-1]
-    append_to_session_file(os.path.join(session.output_folder, session.session_file),
+    append_to_session_file(os.path.join(shared_state.output_folder, shared_state.session_file),
                            track_no, track, session.detections, session.extra_columns)
-    if session.max_prior_track_id is not None:
-        append_to_combined_file(os.path.join(session.output_folder, session.combined_file),
-                                session.max_prior_track_id + track_no, track,
-                                session.detections, session.extra_columns, session.combined_extra_columns)
+    if shared_state.max_prior_track_id is not None:
+        append_to_combined_file(os.path.join(shared_state.output_folder, shared_state.combined_file),
+                                shared_state.max_prior_track_id + track_no, track,
+                                session.detections, session.extra_columns, shared_state.combined_extra_columns)
 
 def save_leftover_file():
-    """Write the session's available detections to its leftover file
+    """Write the session's available detections to the leftover file
     (nothing before a detections file is loaded, as there is no file name)."""
     session = shared_state.session
-    if session.leftover_file:
-        write_leftover_file(os.path.join(session.output_folder, session.leftover_file),
+    if shared_state.leftover_file:
+        write_leftover_file(os.path.join(shared_state.output_folder, shared_state.leftover_file),
                             session.detections, session.extra_columns)
 
 def use_proposed_track():
@@ -229,12 +229,12 @@ def load_csv():
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # name for file where generated tracks are saved
-        shared_state.session.session_file = f'track_session_{csv_filename}_{timestamp}.csv'
+        shared_state.session_file = f'track_session_{csv_filename}_{timestamp}.csv'
         # name for file where leftover positions are preserved
-        shared_state.session.leftover_file = f'upd_{csv_filename}_{timestamp}.csv'
-        shared_state.session.output_folder = os.path.dirname(csv_path)
+        shared_state.leftover_file = f'upd_{csv_filename}_{timestamp}.csv'
+        shared_state.output_folder = os.path.dirname(csv_path)
         # create the empty session file, where accepted tracks are saved
-        with open(os.path.join(shared_state.session.output_folder, shared_state.session.session_file), "w") as f:
+        with open(os.path.join(shared_state.output_folder, shared_state.session_file), "w") as f:
             f.write("")
         csv_loaded = True
         # Build the graph and propose the first track
@@ -298,15 +298,15 @@ def load_track_file():
             session_df = tracks_table(session.accepted, session.detections,
                                       session.extra_columns, first_track_no=max_track_no + 1)
             combined_df, combined_extra_columns = combine_tracks(track_df, session_df)
-            combined_df.to_csv(os.path.join(session.output_folder, upd_track_file), index=False)
+            combined_df.to_csv(os.path.join(shared_state.output_folder, upd_track_file), index=False)
             if session.accepted:
                 show_info("Track File Updated. \n The track file has been successfully updated with the new tracks.")
             else:
                 show_info("Track File Added. \n The track file has been successfully added. New tracks will be added to the existing tracks.")
 
-            session.combined_file = upd_track_file
-            session.combined_extra_columns = combined_extra_columns
-            session.max_prior_track_id = max_track_no
+            shared_state.combined_file = upd_track_file
+            shared_state.combined_extra_columns = combined_extra_columns
+            shared_state.max_prior_track_id = max_track_no
 
             if track_file_label is not None:
                 track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
@@ -1001,9 +1001,9 @@ def create_path_row(description, explanation):
 def update_file_paths_display():
     """Show/hide and refresh the output-file-path rows based on current state."""
     if csv_loaded:
-        leftover_path_field.set_path(os.path.join(shared_state.session.output_folder, shared_state.session.leftover_file))
+        leftover_path_field.set_path(os.path.join(shared_state.output_folder, shared_state.leftover_file))
         leftover_row.setVisible(True)
-        session_path_field.set_path(os.path.join(shared_state.session.output_folder, shared_state.session.session_file))
+        session_path_field.set_path(os.path.join(shared_state.output_folder, shared_state.session_file))
         session_row.setVisible(True)
         # The whole Session Files card (header included) only makes sense
         # once there's a CSV loaded -- with just images loaded, there's
@@ -1016,8 +1016,8 @@ def update_file_paths_display():
         if session_files_header is not None:
             session_files_header.setVisible(False)
 
-    if shared_state.session.max_prior_track_id is not None:
-        upd_track_path_field.set_path(os.path.join(shared_state.session.output_folder, shared_state.session.combined_file))
+    if shared_state.max_prior_track_id is not None:
+        upd_track_path_field.set_path(os.path.join(shared_state.output_folder, shared_state.combined_file))
         upd_track_row.setVisible(True)
     else:
         upd_track_row.setVisible(False)
@@ -1145,10 +1145,9 @@ def clear_detections_and_tracks():
         viewer.layers['track_lines'].data = np.empty((0, 2, 2))
         viewer.layers['track_lines'].refresh()  # Ensure the layer refreshes
     
-    # A fresh session: no detections, graph, tracks or file names. Its blank
-    # file names make any stray write fail loudly (e.g. IsADirectoryError)
-    # rather than silently writing into the *previous* dataset's files.
+    # A fresh session: no detections, graph or tracks, and no output files.
     shared_state.session = Session()
+    shared_state.clear_files()
     shared_state.track = []
     shared_state.track_lines = None
     shared_state.n_detections_shown = None

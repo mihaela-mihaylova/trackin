@@ -22,11 +22,11 @@ def staged_shared_state(tmp_path):
 
     shared_state.session.detections = [[Detection(10, 20)], [Detection(30, 40)]]
     shared_state.session.proposal = [0, 0]  # accept the single detection in each frame
-    shared_state.session.output_folder = str(tmp_path)
-    shared_state.session.session_file = "session.csv"
-    shared_state.session.leftover_file = "updated.csv"
+    shared_state.output_folder = str(tmp_path)
+    shared_state.session_file = "session.csv"
+    shared_state.leftover_file = "updated.csv"
     shared_state.session.has_prior_tracks = False
-    shared_state.session.max_prior_track_id = None  # no prior track file loaded -> skip the combined file
+    shared_state.max_prior_track_id = None  # no prior track file loaded -> skip the combined file
     shared_state.session.graph = generate_graph(
         shared_state.session.detections, max_score=1600, score_func="squared", tracked=False
     )
@@ -85,8 +85,8 @@ def test_accept_track_adds_header_when_session_file_exists_but_empty(
 
 def test_accept_track_writes_upd_track_file_with_offset_track_id(staged_shared_state):
     tmp_path = staged_shared_state
-    shared_state.session.max_prior_track_id = 5
-    shared_state.session.combined_file = "upd_tracks.csv"
+    shared_state.max_prior_track_id = 5
+    shared_state.combined_file = "upd_tracks.csv"
 
     accept_and_save(shared_state.session.proposal)
 

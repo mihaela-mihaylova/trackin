@@ -35,9 +35,9 @@ def load(detections, folder, max_score=1600, score_func="squared"):
     shared_state.session = Session.from_dataframe(df, n_frames=N_FRAMES)
     shared_state.session.max_score = max_score
     shared_state.session.score_func = score_func
-    shared_state.session.output_folder = str(folder)
-    shared_state.session.session_file = "session.csv"
-    shared_state.session.leftover_file = "leftover.csv"
+    shared_state.output_folder = str(folder)
+    shared_state.session_file = "session.csv"
+    shared_state.leftover_file = "leftover.csv"
     (folder / "session.csv").write_text("")  # the empty session file, as the plugin creates it
     shared_state.session.propose()
     use_proposed_track()

@@ -3,7 +3,6 @@ them, and the actions that edit it (accept a track, save or delete a
 segment, delete or add a detection). Uses neither napari nor Qt."""
 
 import math
-import os
 
 from .detection import Detection
 from .io import NO_VALUE, TRACKING_COLUMNS
@@ -21,9 +20,6 @@ class Session:
         # frame, label, area), in their original order; they are written back
         # out after the standard columns in every output file
         self.extra_columns = []
-        # extra columns of the combined track file written by Add Track File:
-        # those of the loaded track file and of the detections file
-        self.combined_extra_columns = []
         self.has_prior_tracks = False
         self.graph = None
         # the proposed track: the detection's index in each frame, or -1
@@ -35,11 +31,6 @@ class Session:
         # index in each frame, or -1; the detections themselves stay in self.detections
         # (inactive), with their positions and extra values.
         self.accepted = []
-        self.max_prior_track_id = None
-        self.output_folder = ''
-        self.session_file = ''
-        self.leftover_file = ''
-        self.combined_file = ''
 
     @classmethod
     def from_dataframe(cls, df, n_frames=0):
