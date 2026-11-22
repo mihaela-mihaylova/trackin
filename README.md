@@ -56,12 +56,14 @@ To install latest development version :
    lists the full set of mouse and keyboard shortcuts.
 6. Optionally, click **Add Track File** to load a `track_session_*.csv`
    from a previous session so newly accepted tracks continue its track
-   numbering instead of restarting from 1. It must have exactly these
+   numbering instead of restarting from 1. It must start with these
    columns, in this order: `tframe, y, x, displ_y, displ_x, track_no`.
+   Any further columns (e.g. label, area) are kept.
 
 Accepted tracks are appended to a `track_session_*.csv` file saved next to
-the detections CSV; any detections not yet assigned to a track are kept in
-an `upd_*.csv` file in the same folder.
+the detections CSV; the detections still available for tracking (not in an
+accepted track and not deleted, plus any you added) are kept in an
+`upd_*.csv` file in the same folder.
 
 ## Acknowledgements
 

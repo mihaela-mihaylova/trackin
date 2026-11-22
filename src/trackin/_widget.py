@@ -931,7 +931,9 @@ class TrackinWidget(QWidget):
 
         leftover_row, leftover_path_field = create_path_row(
             "Leftover detections",
-            "Contains detections that are left after the ones in accepted tracks have been removed.",
+            "Contains the detections still available for tracking: detections in accepted tracks "
+            "and detections you deleted (D, right-click or Shift-Z) are left out, and detections "
+            "you added (Shift-click) are included.",
         )
         session_row, session_path_field = create_path_row(
             "Tracks accepted this session",
