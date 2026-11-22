@@ -7,15 +7,13 @@ from napari.components import ViewerModel
 from skimage.io import imsave
 
 import trackin._layers as _layers
+import trackin._loading as _loading
+import trackin.core.io as core_io
 import trackin._widget as widget
 from trackin.core.detection import Detection
 from trackin.core.session import Session
-from trackin._widget import (
-    add_white_border,
-    check_and_add_displ_cols,
-    generate_upd_track_filename,
-)
-from trackin.core.io import write_leftover_file
+from trackin._loading import add_white_border
+from trackin.core.io import check_and_add_displ_cols, generate_upd_track_filename, write_leftover_file
 from trackin.plugin_state import plugin_state
 from trackin.core.tracking import generate_graph
 
@@ -57,46 +55,46 @@ def test_session_from_dataframe_keeps_empty_frames():
 
 
 def test_check_image_numbering_accepts_consecutive_names():
-    assert widget.check_image_numbering(["2.png", "0.png", "1.png"]) is None
+    assert core_io.check_image_numbering(["2.png", "0.png", "1.png"]) is None
 
 
 def test_check_image_numbering_rejects_missing_frame():
     """One missing image: name the frame and say how to fix it."""
-    message = widget.check_image_numbering(["0.png", "1.png", "3.png"])
+    message = core_io.check_image_numbering(["0.png", "1.png", "3.png"])
     assert "There is no image for frame 2." in message
     assert "Add the missing images, or renumber the images" in message
-    assert widget.IMAGE_NAMING_RULE in message
+    assert core_io.IMAGE_NAMING_RULE in message
 
 
 def test_check_image_numbering_rejects_several_missing_frames():
     """Many missing images: give the total and list only the first 10."""
-    message = widget.check_image_numbering(["0.png", "100.png"])
+    message = core_io.check_image_numbering(["0.png", "100.png"])
     assert "There is no image for 99 frames: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 89 more." in message
 
 
 def test_check_image_numbering_rejects_not_starting_at_zero():
     """A folder numbered 1, 2, 3, ... is told it must start at 0, rather
     than that frame 0 is missing."""
-    message = widget.check_image_numbering(["1.png", "2.png", "3.png"])
+    message = core_io.check_image_numbering(["1.png", "2.png", "3.png"])
     assert "The images are numbered from 1, but must start at 0." in message
     assert "no image for frame" not in message
 
 
 def test_check_image_numbering_rejects_duplicates():
     """Name the files that share a frame number."""
-    message = widget.check_image_numbering(["0.png", "1.png", "01.png"])
+    message = core_io.check_image_numbering(["0.png", "1.png", "01.png"])
     assert "More than one image has frame number 1: 01.png, 1.png." in message
     assert "Keep one image per frame number." in message
 
 
 def test_check_image_numbering_rejects_several_duplicates():
-    message = widget.check_image_numbering(["0.png", "1.png", "01.png", "2.png", "02.png"])
+    message = core_io.check_image_numbering(["0.png", "1.png", "01.png", "2.png", "02.png"])
     assert "same frame number: 1 (01.png, 1.png), 2 (02.png, 2.png)." in message
 
 
 def test_check_image_numbering_rejects_names_without_number():
     """Name the files and suggest the new name for the first one."""
-    message = widget.check_image_numbering(["0.png", "frame_1.png"])
+    message = core_io.check_image_numbering(["0.png", "frame_1.png"])
     assert "not named with only a frame number: frame_1.png." in message
     assert "e.g. frame_1.png → 1.png." in message
 
@@ -104,20 +102,20 @@ def test_check_image_numbering_rejects_names_without_number():
 def test_check_image_numbering_rejects_empty_folder():
     """An empty folder (or one with only other files) lists the supported
     formats instead of the naming rule."""
-    message = widget.check_image_numbering([])
+    message = core_io.check_image_numbering([])
     assert "No images found in this folder." in message
     assert "png" in message
-    assert widget.IMAGE_NAMING_RULE not in message
+    assert core_io.IMAGE_NAMING_RULE not in message
 
 
 def test_format_list_shortens_long_lists():
-    assert widget.format_list([1, 2, 3]) == "1, 2, 3"
-    assert widget.format_list(range(12)) == "0, 1, 2, 3, 4, 5, 6, 7, 8, 9, and 2 more"
+    assert core_io.format_list([1, 2, 3]) == "1, 2, 3"
+    assert core_io.format_list(range(12)) == "0, 1, 2, 3, 4, 5, 6, 7, 8, 9, and 2 more"
 
 
 def test_check_detection_frames_rejects_frames_after_last_image():
     df = pd.DataFrame({"tframe": [0, 1, 3, 3, 4], "y": [1] * 5, "x": [1] * 5})
-    message = widget.check_detection_frames(df, n_images=3)
+    message = core_io.check_detection_frames(df, n_images=3)
     assert "3 detection(s) are in frame(s) 3, 4" in message
     assert "only images for frames 0 to 2" in message
     assert "every tframe must be between 0 and 2" in message
@@ -125,13 +123,13 @@ def test_check_detection_frames_rejects_frames_after_last_image():
 
 def test_check_detection_frames_rejects_negative_frames():
     df = pd.DataFrame({"tframe": [-1, 0], "y": [1, 1], "x": [1, 1]})
-    message = widget.check_detection_frames(df, n_images=3)
+    message = core_io.check_detection_frames(df, n_images=3)
     assert "1 detection(s) are in frame(s) -1" in message
 
 
 def test_check_detection_frames_accepts_when_all_frames_have_images():
     df = pd.DataFrame({"tframe": [0, 2], "y": [1, 1], "x": [1, 1]})
-    assert widget.check_detection_frames(df, n_images=3) is None
+    assert core_io.check_detection_frames(df, n_images=3) is None
 
 
 def test_add_white_border_grayscale():
@@ -554,7 +552,7 @@ def test_list_image_files_ignores_other_files(tmp_path):
     they would be reported as images not named with a frame number."""
     for name in ["0.png", "1.TIF", ".DS_Store", "notes.txt"]:
         (tmp_path / name).write_bytes(b"")
-    assert sorted(widget.list_image_files(str(tmp_path))) == ["0.png", "1.TIF"]
+    assert sorted(core_io.list_image_files(str(tmp_path))) == ["0.png", "1.TIF"]
 
 
 # Session file name of the dataset that is open before a test tries to load
@@ -579,7 +577,7 @@ def _record_critical_messages(monkeypatch):
     so a test can check the message without anyone clicking OK."""
     messages = []
     monkeypatch.setattr(
-        widget.QMessageBox, "critical",
+        _loading.QMessageBox, "critical",
         lambda parent, title, text: messages.append((title, text)),
     )
     return messages
@@ -607,10 +605,10 @@ def test_choose_folder_refuses_missing_image_and_keeps_open_dataset(tmp_path, mo
     messages = _record_critical_messages(monkeypatch)
     # the folder dialog picks the test folder instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path)
+        _loading.QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path)
     )
 
-    widget.choose_folder()
+    _loading.choose_folder()
 
     assert len(messages) == 1
     title, text = messages[0]
@@ -630,10 +628,10 @@ def test_choose_folder_refuses_unreadable_image_and_keeps_open_dataset(tmp_path,
     messages = _record_critical_messages(monkeypatch)
     # the folder dialog picks the test folder instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path)
+        _loading.QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path)
     )
 
-    widget.choose_folder()
+    _loading.choose_folder()
 
     # one message for all unreadable images, naming them
     assert len(messages) == 1
@@ -655,10 +653,10 @@ def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_pa
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test CSV instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
+        _loading.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
     )
 
-    widget.load_csv()
+    _loading.load_csv()
 
     assert len(messages) == 1
     title, text = messages[0]
@@ -680,7 +678,7 @@ def test_read_detections_csv_keeps_extra_columns_as_they_are(tmp_path):
     csv_path = tmp_path / "detections.csv"
     csv_path.write_text("tframe,y,x,label,area\n0,10.7,20,cell_A,350.5\n")
 
-    df = widget.read_detections_csv(str(csv_path))
+    df = core_io.read_detections_csv(str(csv_path))
 
     assert df["y"].tolist() == [10]  # tracking column: whole number, as before
     assert df["label"].tolist() == ["cell_A"]  # text kept
@@ -840,10 +838,10 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test track file instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
+        _loading.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
     )
 
-    widget.load_track_file()
+    _loading.load_track_file()
 
     assert messages == []
     combined = (tmp_path / plugin_state.combined_file).read_text().splitlines()
@@ -882,10 +880,10 @@ def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path,
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test track file instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
+        _loading.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
     )
 
-    widget.load_track_file()
+    _loading.load_track_file()
 
     assert messages == []
     assert plugin_state.combined_extra_columns == ["label", "quality", "note"]
@@ -913,10 +911,10 @@ def test_load_track_file_refuses_file_not_starting_with_standard_columns(tmp_pat
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test file instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
+        _loading.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
     )
 
-    widget.load_track_file()
+    _loading.load_track_file()
 
     assert len(messages) == 1
     title, text = messages[0]
@@ -978,10 +976,10 @@ def test_load_csv_shows_error_for_unreadable_file_and_keeps_open_dataset(tmp_pat
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test CSV instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
+        _loading.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
     )
 
-    widget.load_csv()
+    _loading.load_csv()
 
     assert len(messages) == 1
     title, text = messages[0]
@@ -1000,7 +998,7 @@ def test_read_detections_csv_refuses_extra_value_on_first_line(tmp_path):
     csv_path.write_text("tframe,y,x\n0,10,2,5\n1,20,20\n")
 
     with pytest.raises(ValueError, match="Line 2 has more values than the header has columns"):
-        widget.read_detections_csv(str(csv_path))
+        core_io.read_detections_csv(str(csv_path))
 
 
 def test_read_detections_csv_refuses_file_without_required_columns(tmp_path):
@@ -1011,7 +1009,7 @@ def test_read_detections_csv_refuses_file_without_required_columns(tmp_path):
     csv_path.write_text("frame,y,x\n0,10,10\n")
 
     with pytest.raises(ValueError) as error:
-        widget.read_detections_csv(str(csv_path))
+        core_io.read_detections_csv(str(csv_path))
 
     assert "must have the columns tframe, y and x, but it has no tframe" in str(error.value)
     assert "Its columns are: frame, y, x." in str(error.value)
@@ -1025,7 +1023,7 @@ def test_read_detections_csv_refuses_file_separated_by_semicolons(tmp_path):
     csv_path.write_text("tframe;y;x\n0;10;10\n")
 
     with pytest.raises(ValueError) as error:
-        widget.read_detections_csv(str(csv_path))
+        core_io.read_detections_csv(str(csv_path))
 
     assert "but it has no tframe, y, x" in str(error.value)
     assert "Its columns are: tframe;y;x." in str(error.value)
