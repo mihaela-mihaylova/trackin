@@ -523,6 +523,31 @@ def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     assert len(viewer.layers["track_point"].data) == 0
 
 
+def test_track_lines_are_drawn_again_after_being_emptied(monkeypatch):
+    """The track lines layer is emptied when a track has fewer than two
+    points (and when new detections are loaded). napari then takes shapes
+    put into it for polygons, which two points don't draw, so the next
+    track's lines were invisible. They must be lines again."""
+    viewer = ViewerModel()
+    monkeypatch.setattr(plugin_state, "viewer", viewer)
+    monkeypatch.setattr(plugin_state, "images", [np.zeros((50, 50))] * 3)
+    monkeypatch.setattr(plugin_state, "image_files", ["0.png", "1.png", "2.png"])
+    monkeypatch.setattr(plugin_state, "csv_loaded", True)
+    monkeypatch.setattr(plugin_state.session, "detections",
+                        [[Detection(10, 10)], [Detection(20, 20)], [Detection(30, 25)]])
+    monkeypatch.setattr(plugin_state, "current_frame", 0)
+
+    monkeypatch.setattr(plugin_state, "track", [0, 0, 0])   # a track over 3 frames: 2 lines
+    _layers.update_image()
+    monkeypatch.setattr(plugin_state, "track", [0, -1, -1])  # a single point: no lines, layer emptied
+    _layers.update_image()
+    assert len(viewer.layers["track_lines"].data) == 0
+    monkeypatch.setattr(plugin_state, "track", [0, 0, 0])   # a track over 3 frames again
+    _layers.update_image()
+
+    assert viewer.layers["track_lines"].shape_type == ["line", "line"]
+
+
 def test_list_image_files_ignores_other_files(tmp_path):
     """Only image files count as frames. Other files in the folder, such as
     macOS's hidden .DS_Store or a notes.txt, must be ignored -- otherwise

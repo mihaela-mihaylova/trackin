@@ -141,8 +141,12 @@ def overlay_points(frame_data):
     if len(track_points) > 1:
         lines = np.array([[track_points[i], track_points[i + 1]] for i in range(len(track_points) - 1)])
         if 'track_lines' in plugin_state.viewer.layers:
-            if not np.array_equal(plugin_state.viewer.layers['track_lines'].data, lines):
-                plugin_state.viewer.layers['track_lines'].data = lines
+            track_lines_layer = plugin_state.viewer.layers['track_lines']
+            if not np.array_equal(track_lines_layer.data, lines):
+                track_lines_layer.data = lines
+                # Once the layer has been emptied, napari takes new shapes
+                # for polygons, which two points don't draw
+                track_lines_layer.shape_type = 'line'
         else:
             # Create the shapes layer for the track lines if it doesn't exist
             plugin_state.viewer.add_shapes(
