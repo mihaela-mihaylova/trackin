@@ -69,8 +69,6 @@ def check_and_update_image(w):
 
 def choose_folder(w):
     """Open a dialog to select a folder and load images from it."""
-    # _widget.py imports this file, so it is imported here rather than at the top
-    from . import _widget
     folder_path = QFileDialog.getExistingDirectory(None, "Select Folder with Images")
     if folder_path:
         # Check the image names before loading anything, so a folder that
@@ -89,7 +87,7 @@ def choose_folder(w):
                 "frame numbers."
             )
             return
-        _widget.clear_detections_and_tracks(w)
+        w.clear_detections_and_tracks()
         w.state.images, w.state.image_files = new_images, new_image_files
         w.state.current_frame = 0
         w.state.images_loaded = True
@@ -106,8 +104,6 @@ def choose_folder(w):
 
 def load_csv(w):
     """Open a dialog to select a CSV file and load its data."""
-    # _widget.py imports this file, so it is imported here rather than at the top
-    from . import _widget
     if not w.state.images_loaded:
         QMessageBox.information(None, "Load Images First", "Please load the images before loading the CSV file.")
         return
@@ -129,7 +125,7 @@ def load_csv(w):
             QMessageBox.critical(None, "Detections Not Loaded", frames_error)
             return
         if w.state.csv_loaded:
-            _widget.clear_detections_and_tracks(w)
+            w.clear_detections_and_tracks()
 
         csv_data = check_and_add_displ_cols(new_csv_data)
         w.state.session = Session.from_dataframe(csv_data, n_frames=len(w.state.images))
@@ -161,7 +157,7 @@ def load_csv(w):
 
         check_and_update_image(w)
 
-        _widget.update_file_paths_display()
+        w.update_file_paths_display()
 
         # Move keyboard focus off the slider's editable readout (left focused,
         # and blinking its text cursor, after the file dialog closes) and back
@@ -171,8 +167,6 @@ def load_csv(w):
 # loads a file with already accepted tracks and adds these and any subsequent accepted tracks to a new track file
 def load_track_file(w):
     """Open a dialog to select a CSV file and load a csv with tracks generated in a previous session."""
-    # _widget.py imports this file, so it is imported here rather than at the top
-    from . import _widget
     
     if not w.state.images_loaded or not w.state.csv_loaded:
         QMessageBox.information(None, "Load Images and Detections First.", "Please load the images and detections before loading the track file to add new tracks to.")
@@ -205,13 +199,12 @@ def load_track_file(w):
             w.state.combined_extra_columns = combined_extra_columns
             w.state.max_prior_track_id = max_track_no
 
-            if _widget.track_file_label is not None:
-                _widget.track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
-                # set_path() defaults the tooltip to the same string as the
-                # display text; override it with the actual full path instead
-                _widget.track_file_label.setToolTip(csv_path)
+            w.track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
+            # set_path() defaults the tooltip to the same string as the
+            # display text; override it with the actual full path instead
+            w.track_file_label.setToolTip(csv_path)
 
-            _widget.update_file_paths_display()
+            w.update_file_paths_display()
 
         except TrackFileError as e:
             QMessageBox.critical(None, "Track File Not Loaded", str(e))

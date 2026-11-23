@@ -212,7 +212,8 @@ def test_refresh_stats_shows_the_counts_only_when_there_is_a_graph():
     """The widget's Detections and Connections counts are hidden while
     there is no graph, and show the session's numbers once there is one."""
     parent = widget.QWidget()  # never shown, so the labels open no window
-    stand_in = SimpleNamespace(dets_label=widget.QLabel(parent), conns_label=widget.QLabel(parent))
+    stand_in = SimpleNamespace(state=plugin_state,
+                               dets_label=widget.QLabel(parent), conns_label=widget.QLabel(parent))
 
     widget.TrackinWidget.refresh_stats(stand_in)
     assert stand_in.dets_label.isHidden() and stand_in.conns_label.isHidden()
@@ -229,98 +230,61 @@ def test_refresh_stats_shows_the_counts_only_when_there_is_a_graph():
 
 
 def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
-    original_widgets = {
-        name: getattr(widget, name)
-        for name in (
-            "track_file_label",
-            "leftover_row",
-            "leftover_path_field",
-            "session_row",
-            "session_path_field",
-            "upd_track_row",
-            "upd_track_path_field",
-            "session_files_header",
-            "session_files_content",
-        )
-    }
-
-    # the widget's counts are refreshed by its refresh_stats
+    plugin_state.viewer = _FakeViewer()
     w = stand_in_widget()
+    # the widget's counts are refreshed by its refresh_stats
     refreshed = []
     w.refresh_stats = lambda: refreshed.append(True)
 
-    try:
-        plugin_state.viewer = _FakeViewer()
+    # the track file label and the Session Files panel as after a prior load
+    w.track_file_label.set_path("Track file loaded: old_tracks.csv")
+    w.session_files.show_paths("/old/upd.csv", "/old/session.csv", "/old/combined.csv")
 
-        widget.track_file_label = widget.ElidedPathLabel()
-        widget.track_file_label.set_path("Track file loaded: old_tracks.csv")
+    # Seed state as if a full session (images, detections, and a loaded
+    # track file) had already happened for the *previous* dataset
+    plugin_state.session.detections = [[(1, 2, 0, 0)]]
+    plugin_state.track = [0]
+    plugin_state.session.has_prior_tracks = True
+    plugin_state.max_prior_track_id = 7
+    plugin_state.session.graph = object()  # value doesn't matter, only that it's reset to None
+    plugin_state.session.accepted = [[0], [0], [0]]  # three tracks accepted before
+    plugin_state.session_file = "track_session_old_20250101_000000.csv"
+    plugin_state.leftover_file = "upd_old_20250101_000000.csv"
+    plugin_state.combined_file = "with_new_tracks_added_old_20250101_000000.csv"
+    plugin_state.combined_extra_columns = ["label"]
+    plugin_state.output_folder = "/old/dataset"
+    plugin_state.n_detections_shown = 42
+    plugin_state.n_connections_shown = 99
 
-        widget.leftover_row, widget.leftover_path_field = widget.create_path_row(
-            "Leftover detections", "..."
-        )
-        widget.session_row, widget.session_path_field = widget.create_path_row(
-            "Tracks accepted this session", "..."
-        )
-        widget.upd_track_row, widget.upd_track_path_field = widget.create_path_row(
-            "Combined tracks", "..."
-        )
-        for row in (widget.leftover_row, widget.session_row, widget.upd_track_row):
-            row.setVisible(True)  # simulate them being shown from a prior load
+    w.clear_detections_and_tracks()
 
-        widget.session_files_header = widget.QPushButton("")
-        widget.session_files_header.setVisible(True)  # simulate it showing from a prior load
-        widget.session_files_content = widget.QWidget()
-        widget.set_session_files_expanded(True)  # simulate it being expanded from a prior load
+    assert plugin_state.session.detections == []
+    assert plugin_state.track == []
+    assert plugin_state.session.has_prior_tracks is False
+    assert plugin_state.max_prior_track_id is None
+    assert plugin_state.session.graph is None
+    assert plugin_state.session.accepted == []
+    assert plugin_state.session_file == ''
+    assert plugin_state.leftover_file == ''
+    assert plugin_state.combined_file == ''
+    assert plugin_state.combined_extra_columns == []
+    assert plugin_state.output_folder == ''
+    assert plugin_state.n_detections_shown is None
+    assert plugin_state.n_connections_shown is None
 
-        # Seed state as if a full session (images, detections, and a loaded
-        # track file) had already happened for the *previous* dataset
-        plugin_state.session.detections = [[(1, 2, 0, 0)]]
-        plugin_state.track = [0]
-        plugin_state.session.has_prior_tracks = True
-        plugin_state.max_prior_track_id = 7
-        plugin_state.session.graph = object()  # value doesn't matter, only that it's reset to None
-        plugin_state.session.accepted = [[0], [0], [0]]  # three tracks accepted before
-        plugin_state.session_file = "track_session_old_20250101_000000.csv"
-        plugin_state.leftover_file = "upd_old_20250101_000000.csv"
-        plugin_state.combined_file = "with_new_tracks_added_old_20250101_000000.csv"
-        plugin_state.combined_extra_columns = ["label"]
-        plugin_state.output_folder = "/old/dataset"
-        plugin_state.n_detections_shown = 42
-        plugin_state.n_connections_shown = 99
+    assert w.track_file_label.full_path == ""
 
-        widget.clear_detections_and_tracks(w)
+    # There is no graph left, so the widget's counts are refreshed to hide them
+    assert len(refreshed) == 1
 
-        assert plugin_state.session.detections == []
-        assert plugin_state.track == []
-        assert plugin_state.session.has_prior_tracks is False
-        assert plugin_state.max_prior_track_id is None
-        assert plugin_state.session.graph is None
-        assert plugin_state.session.accepted == []
-        assert plugin_state.session_file == ''
-        assert plugin_state.leftover_file == ''
-        assert plugin_state.combined_file == ''
-        assert plugin_state.combined_extra_columns == []
-        assert plugin_state.output_folder == ''
-        assert plugin_state.n_detections_shown is None
-        assert plugin_state.n_connections_shown is None
-
-        assert widget.track_file_label.full_path == ""
-        assert widget.leftover_row.isVisible() is False
-        assert widget.session_row.isVisible() is False
-        assert widget.upd_track_row.isVisible() is False
-
-        # There is no graph left, so the widget's counts are refreshed to hide them
-        assert len(refreshed) == 1
-
-        # The Session Files card should disappear entirely (not just
-        # collapse) -- there's nothing left in it to show until a new CSV
-        # is loaded.
-        assert widget.session_files_header.isVisible() is False
-        assert widget.session_files_content.isVisible() is False
-        assert widget.session_files_header.text() == "▸ Session Files"
-    finally:
-        for name, value in original_widgets.items():
-            setattr(widget, name, value)
+    # The Session Files panel should disappear entirely (not just
+    # collapse) -- there's nothing left in it to show until a new CSV
+    # is loaded.
+    panel = w.session_files
+    assert panel.isHidden()
+    assert panel.leftover_row.isHidden() and panel.session_row.isHidden() and panel.combined_row.isHidden()
+    assert panel.content.isHidden()
+    assert panel.header.text() == "▸ Session Files"
 
 
 def test_delete_detection_d_key_no_op_when_track_is_empty_list():
@@ -430,55 +394,52 @@ def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
     assert event.handled is True
 
 
-def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
+def test_update_file_paths_display_auto_expands_session_files_panel(tmp_path):
     """A newly added file (e.g. from "Add Track File") should be immediately
     visible, not hidden behind a collapsed header the user has to think to
-    open -- update_file_paths_display() must expand the card whenever it
+    open -- update_file_paths_display() must expand the panel whenever it
     actually updates a row's content."""
-    original_widgets = {
-        name: getattr(widget, name)
-        for name in (
-            "leftover_row",
-            "leftover_path_field",
-            "session_row",
-            "session_path_field",
-            "upd_track_row",
-            "upd_track_path_field",
-            "session_files_header",
-            "session_files_content",
-        )
-    }
+    plugin_state.csv_loaded = True
+    plugin_state.output_folder = str(tmp_path)
+    plugin_state.leftover_file = "updated.csv"
+    plugin_state.session_file = "session.csv"
+    plugin_state.max_prior_track_id = None
+    w = stand_in_widget()  # its Session Files panel starts hidden and closed
 
-    try:
-        plugin_state.csv_loaded = True
-        plugin_state.output_folder = str(tmp_path)
-        plugin_state.leftover_file = "updated.csv"
-        plugin_state.session_file = "session.csv"
-        plugin_state.max_prior_track_id = None
+    w.update_file_paths_display()
 
-        widget.leftover_row, widget.leftover_path_field = widget.create_path_row(
-            "Leftover detections", "..."
-        )
-        widget.session_row, widget.session_path_field = widget.create_path_row(
-            "Tracks accepted this session", "..."
-        )
-        widget.upd_track_row, widget.upd_track_path_field = widget.create_path_row(
-            "Combined tracks", "..."
-        )
+    panel = w.session_files
+    assert not panel.isHidden()
+    assert not panel.content.isHidden()
+    assert panel.header.text() == "▾ Session Files"
+    assert panel.leftover_path_field.full_path == str(tmp_path / "updated.csv")
+    assert panel.combined_row.isHidden()  # no track file added
 
-        widget.session_files_header = widget.QPushButton("")
-        widget.session_files_header.setVisible(False)  # hidden until a CSV is loaded, as it would be by default
-        widget.session_files_content = widget.QWidget()
-        widget.set_session_files_expanded(False)  # start collapsed, as it would be by default
 
-        widget.update_file_paths_display()
+def test_session_files_panel_shows_and_hides_its_rows():
+    """The Session Files panel shows the leftover and session files' rows,
+    the combined file's row only when there is one, and hides everything
+    again when there are no output files."""
+    panel = widget.SessionFilesPanel()
+    assert panel.isHidden()
 
-        assert widget.session_files_header.isVisible() is True
-        assert widget.session_files_content.isVisible() is True
-        assert widget.session_files_header.text() == "▾ Session Files"
-    finally:
-        for name, value in original_widgets.items():
-            setattr(widget, name, value)
+    panel.show_paths("/data/upd.csv", "/data/session.csv")
+    assert not panel.isHidden() and not panel.content.isHidden()
+    assert not panel.leftover_row.isHidden() and not panel.session_row.isHidden()
+    assert panel.combined_row.isHidden()
+
+    panel.show_paths("/data/upd.csv", "/data/session.csv", "/data/combined.csv")
+    assert not panel.combined_row.isHidden()
+    assert panel.combined_path_field.full_path == "/data/combined.csv"
+
+    panel.header.click()  # closes the panel's rows
+    assert panel.content.isHidden() and panel.header.text() == "▸ Session Files"
+    panel.header.click()  # and opens them again
+    assert not panel.content.isHidden() and panel.header.text() == "▾ Session Files"
+
+    panel.hide_all()
+    assert panel.isHidden()
+    assert panel.leftover_row.isHidden() and panel.session_row.isHidden() and panel.combined_row.isHidden()
 
 
 def test_update_image_draws_detections_of_file_without_track_no(monkeypatch):
@@ -851,8 +812,6 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
 
     monkeypatch.setattr(plugin_state, "images_loaded", True)
     monkeypatch.setattr(plugin_state, "csv_loaded", True)
-    monkeypatch.setattr(widget, "track_file_label", None)
-    monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
     monkeypatch.setattr(plugin_state.session, "extra_columns", ["label", "note"])
     # one track accepted in this session (detection 0 of frame 0)
     monkeypatch.setattr(plugin_state.session, "detections",
@@ -892,8 +851,6 @@ def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path,
 
     monkeypatch.setattr(plugin_state, "images_loaded", True)
     monkeypatch.setattr(plugin_state, "csv_loaded", True)
-    monkeypatch.setattr(widget, "track_file_label", None)
-    monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
     monkeypatch.setattr(plugin_state.session, "extra_columns", ["label", "note"])
     monkeypatch.setattr(plugin_state, "combined_extra_columns", [])
     # one track accepted in this session (detection 0 of frame 0)

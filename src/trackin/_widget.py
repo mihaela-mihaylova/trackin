@@ -8,67 +8,10 @@ import numpy as np
 from .plugin_state import plugin_state
 from . import _loading
 from ._help_dialog import show_help
-from ._session_files import ElidedPathLabel, create_path_row
+from ._session_files import ElidedPathLabel, SessionFilesPanel
 from ._navigation import Navigator
 from ._viewer_setup import initialize_viewer
 from .core.session import Session
-
-container = None  # Global reference to the container
-
-
-track_file_label = None  # Shows which track file was last loaded, if any
-
-# Persistent, copyable output-file-path rows (see create_path_row / update_file_paths_display)
-leftover_row = None
-leftover_path_field = None
-session_row = None
-session_path_field = None
-upd_track_row = None
-upd_track_path_field = None
-
-# Collapsible "Session Files" card wrapping the three rows above
-session_files_header = None
-session_files_content = None
-
-def set_session_files_expanded(expanded):
-    """Show/hide the Session Files card's content and update its header arrow."""
-    session_files_content.setVisible(expanded)
-    arrow = "▾" if expanded else "▸"  # ▾ expanded, ▸ collapsed
-    session_files_header.setText(f"{arrow} Session Files")
-
-def toggle_session_files():
-    set_session_files_expanded(not session_files_content.isVisible())
-
-def update_file_paths_display():
-    """Show/hide and refresh the output-file-path rows based on current state."""
-    if plugin_state.csv_loaded:
-        leftover_path_field.set_path(os.path.join(plugin_state.output_folder, plugin_state.leftover_file))
-        leftover_row.setVisible(True)
-        session_path_field.set_path(os.path.join(plugin_state.output_folder, plugin_state.session_file))
-        session_row.setVisible(True)
-        # The whole Session Files card (header included) only makes sense
-        # once there's a CSV loaded -- with just images loaded, there's
-        # nothing to show yet.
-        if session_files_header is not None:
-            session_files_header.setVisible(True)
-    else:
-        leftover_row.setVisible(False)
-        session_row.setVisible(False)
-        if session_files_header is not None:
-            session_files_header.setVisible(False)
-
-    if plugin_state.max_prior_track_id is not None:
-        upd_track_path_field.set_path(os.path.join(plugin_state.output_folder, plugin_state.combined_file))
-        upd_track_row.setVisible(True)
-    else:
-        upd_track_row.setVisible(False)
-
-    # Auto-expand the card whenever a row's content actually changed, so a
-    # newly added file (e.g. from "Add Track File") is immediately visible
-    # rather than hidden behind a collapsed header the user has to think to
-    # open. Only relevant once the header itself is showing (csv_loaded).
-    if plugin_state.csv_loaded and session_files_content is not None:
-        set_session_files_expanded(True)
 
 class TrackinWidget(QWidget):
     """Dock widget for the plugin interface. napari's dock-widget injection
@@ -87,12 +30,7 @@ class TrackinWidget(QWidget):
         self.navigator = Navigator(self)
         initialize_viewer(self)
 
-        global container, track_file_label
-        global leftover_row, leftover_path_field, session_row, session_path_field
-        global upd_track_row, upd_track_path_field
-        global session_files_header, session_files_content
-        container = self
-        layout = QVBoxLayout(container)  # Create a vertical layout
+        layout = QVBoxLayout(self)  # Create a vertical layout
 
         # Small round help button, opens a dialog listing keyboard/mouse shortcuts
         help_button = QPushButton("?")
@@ -145,52 +83,16 @@ class TrackinWidget(QWidget):
 
         # Shows the loaded track file's name once "Add Track File" succeeds,
         # since that success is otherwise only reported via a transient toast
-        track_file_label = ElidedPathLabel()
-        track_file_label.setStyleSheet("color: gray; font-style: italic;")
-        layout.addWidget(track_file_label)
+        self.track_file_label = ElidedPathLabel()
+        self.track_file_label.setStyleSheet("color: gray; font-style: italic;")
+        layout.addWidget(self.track_file_label)
 
         layout.addWidget(self.navigator.image_slider.native)  # Add the slider widget
 
-        # Collapsible "Session Files" card wrapping the copyable output-file-path
-        # rows, shown/updated as state changes. Starts collapsed since there's
-        # nothing to show until a CSV is loaded; update_file_paths_display()
-        # auto-expands it whenever a row's content actually changes.
-        session_files_header = QPushButton("▸ Session Files")
-        session_files_header.setFlat(True)
-        session_files_header.setStyleSheet(
-            "QPushButton { text-align: left; font-weight: 600; border: none; padding: 2px 0; }"
-        )
-        session_files_header.setCursor(Qt.PointingHandCursor)
-        session_files_header.clicked.connect(toggle_session_files)
-        session_files_header.setVisible(False)  # nothing to show until a CSV is loaded
-        layout.addWidget(session_files_header)
-
-        session_files_content = QWidget()
-        file_paths_layout = QVBoxLayout(session_files_content)
-        file_paths_layout.setContentsMargins(0, 4, 0, 14)
-        file_paths_layout.setSpacing(8)
-
-        leftover_row, leftover_path_field = create_path_row(
-            "Leftover detections",
-            "Contains the detections still available for tracking: detections in accepted tracks "
-            "and detections you deleted (D, right-click or Shift-Z) are left out, and detections "
-            "you added (Shift-click) are included.",
-        )
-        session_row, session_path_field = create_path_row(
-            "Tracks accepted this session",
-            "Contains the detections included in the accepted tracks, together with the respective generated track ids.",
-        )
-        upd_track_row, upd_track_path_field = create_path_row(
-            "Combined tracks",
-            "Contains the tracks from the added track file, together with the accepted tracks in this session.",
-        )
-
-        for row in (leftover_row, session_row, upd_track_row):
-            row.setVisible(False)
-            file_paths_layout.addWidget(row)
-
-        session_files_content.setVisible(False)
-        layout.addWidget(session_files_content)
+        # The Session Files panel with the output files' paths, hidden until a
+        # detections file is loaded; update_file_paths_display() fills it in
+        self.session_files = SessionFilesPanel()
+        layout.addWidget(self.session_files)
 
         # The Detections and Connections counts, shown once there is a graph
         self.dets_label = QLabel()
@@ -199,80 +101,80 @@ class TrackinWidget(QWidget):
         layout.addWidget(self.conns_label)
         self.refresh_stats()
 
-        # Set layout to the container
-        container.setLayout(layout)
+        # Set layout to the widget
+        self.setLayout(layout)
 
-        # Set focus policy and initially focus the container
-        container.setFocusPolicy(Qt.StrongFocus)
-        container.setFocus()
-        plugin_state.viewer.window.qt_viewer.dockLayerList.setVisible(False)
-        plugin_state.viewer.window.qt_viewer.dockLayerControls.setVisible(False)
+        # Set focus policy and initially focus the widget
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocus()
+        self.viewer.window.qt_viewer.dockLayerList.setVisible(False)
+        self.viewer.window.qt_viewer.dockLayerControls.setVisible(False)
 
     def focus(self):
         """Move keyboard focus back to the widget so shortcuts keep working."""
         self.setFocus()
 
-    def refresh_stats(self, event=None):
+    def refresh_stats(self):
         """Show the current number of detections and connections, or hide
         the counts when there is no graph."""
-        has_graph = plugin_state.session.graph is not None
+        state = self.state
+        has_graph = state.session.graph is not None
         if has_graph:
-            counts = plugin_state.session.stats()
-            plugin_state.n_detections_shown = counts["detections"]
-            plugin_state.n_connections_shown = counts["connections"]
-            self.dets_label.setText(f"Detections: {plugin_state.n_detections_shown}")
-            self.conns_label.setText(f"Connections: {plugin_state.n_connections_shown}")
+            counts = state.session.stats()
+            state.n_detections_shown = counts["detections"]
+            state.n_connections_shown = counts["connections"]
+            self.dets_label.setText(f"Detections: {state.n_detections_shown}")
+            self.conns_label.setText(f"Connections: {state.n_connections_shown}")
         self.dets_label.setVisible(has_graph)
         self.conns_label.setVisible(has_graph)
 
+    def update_file_paths_display(self):
+        """Show the output files' paths once a detections file is loaded,
+        or hide the Session Files panel when there is none."""
+        state = self.state
+        if not state.csv_loaded:
+            self.session_files.hide_all()
+            return
+        combined = (os.path.join(state.output_folder, state.combined_file)
+                    if state.max_prior_track_id is not None else None)
+        self.session_files.show_paths(
+            os.path.join(state.output_folder, state.leftover_file),
+            os.path.join(state.output_folder, state.session_file),
+            combined,
+        )
 
-def clear_detections_and_tracks(w):
-    """Explicitly clear detection points and track lines from the Napari viewer."""
-    
-    # Check and clear the 'detections' layer if it exists
-    if 'detections' in plugin_state.viewer.layers:
-        plugin_state.viewer.layers['detections'].data = np.empty((0, 2))
-        plugin_state.viewer.layers['detections'].refresh()  # Ensure the layer refreshes
-    
-    # Check and clear the 'track_lines' layer if it exists
-    if 'track_lines' in plugin_state.viewer.layers:
-        plugin_state.viewer.layers['track_lines'].data = np.empty((0, 2, 2))
-        plugin_state.viewer.layers['track_lines'].refresh()  # Ensure the layer refreshes
-    
-    # A fresh session: no detections, graph or tracks, and no output files.
-    plugin_state.session = Session()
-    plugin_state.clear_files()
-    plugin_state.track = []
-    plugin_state.n_detections_shown = None
-    plugin_state.n_connections_shown = None
+    def clear_detections_and_tracks(self):
+        """Explicitly clear detection points and track lines from the Napari viewer."""
 
-    # Hide all three rows unconditionally rather than routing through
-    # update_file_paths_display(): that function's leftover/session
-    # visibility is gated on plugin_state.csv_loaded, which is never
-    # reset to False here or in choose_folder() -- so if a CSV had
-    # already been loaded once this session and images are reloaded
-    # without a new CSV yet, csv_loaded is still stale True and would
-    # re-show the *previous* dataset's file paths. Any caller that goes on
-    # to load a fresh CSV (e.g. load_csv() reloading) will re-show the
-    # rows correctly via its own update_file_paths_display() call right after.
-    if leftover_row is not None:
-        leftover_row.setVisible(False)
-        session_row.setVisible(False)
-        upd_track_row.setVisible(False)
+        # Check and clear the 'detections' layer if it exists
+        if 'detections' in self.viewer.layers:
+            self.viewer.layers['detections'].data = np.empty((0, 2))
+            self.viewer.layers['detections'].refresh()  # Ensure the layer refreshes
 
-    # Hide the whole Session Files card (not just collapse it) too, since
-    # there's nothing left in it to show until a new CSV is loaded.
-    if session_files_content is not None:
-        set_session_files_expanded(False)
-        session_files_header.setVisible(False)
+        # Check and clear the 'track_lines' layer if it exists
+        if 'track_lines' in self.viewer.layers:
+            self.viewer.layers['track_lines'].data = np.empty((0, 2, 2))
+            self.viewer.layers['track_lines'].refresh()  # Ensure the layer refreshes
 
-    # Clear the "Track file loaded: ..." label too -- it previously wasn't
-    # touched here at all, so it kept showing the *previous* dataset's
-    # loaded track file even after images were reloaded.
-    if track_file_label is not None:
-        track_file_label.set_path("")
+        # A fresh session: no detections, graph or tracks, and no output files.
+        self.state.session = Session()
+        self.state.clear_files()
+        self.state.track = []
+        self.state.n_detections_shown = None
+        self.state.n_connections_shown = None
 
-    # There is no graph now, so this hides the widget's counts
-    w.refresh_stats()
+        # Hide the Session Files panel directly rather than through
+        # update_file_paths_display(): that decides on state.csv_loaded, which
+        # is not reset here or in choose_folder(), so after images are
+        # reloaded it would show the previous dataset's file paths again. A
+        # caller that goes on to load a new detections file shows the panel
+        # again through its own update_file_paths_display() call.
+        self.session_files.hide_all()
 
-    print("Cleared all detections and tracks.")
+        # The "Track file loaded: ..." label belongs to the previous dataset too
+        self.track_file_label.set_path("")
+
+        # There is no graph now, so this hides the widget's counts
+        self.refresh_stats()
+
+        print("Cleared all detections and tracks.")
