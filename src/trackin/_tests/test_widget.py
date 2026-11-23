@@ -19,6 +19,16 @@ from trackin.core.io import check_and_add_displ_cols, generate_upd_track_filenam
 from trackin.plugin_state import plugin_state
 from trackin.core.tracking import generate_graph
 
+
+def stand_in_widget():
+    """A stand-in for the Trackin widget, with the parts the plugin's
+    functions use: the state, the viewer, and focus/refresh_stats doing
+    nothing. A real widget would need a napari window, which the test
+    machines don't all have."""
+    return SimpleNamespace(state=plugin_state, viewer=plugin_state.viewer,
+                           focus=lambda: None, refresh_stats=lambda: None)
+
+
 def test_check_and_add_displ_cols_adds_missing_columns():
     df = pd.DataFrame({"tframe": [0, 1], "y": [1, 2], "x": [3, 4]})
     result = check_and_add_displ_cols(df)
@@ -629,7 +639,7 @@ def test_choose_folder_refuses_missing_image_and_keeps_open_dataset(tmp_path, mo
         _loading.QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path)
     )
 
-    _loading.choose_folder()
+    _loading.choose_folder(stand_in_widget())
 
     assert len(messages) == 1
     title, text = messages[0]
@@ -652,7 +662,7 @@ def test_choose_folder_refuses_unreadable_image_and_keeps_open_dataset(tmp_path,
         _loading.QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path)
     )
 
-    _loading.choose_folder()
+    _loading.choose_folder(stand_in_widget())
 
     # one message for all unreadable images, naming them
     assert len(messages) == 1
@@ -677,7 +687,7 @@ def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_pa
         _loading.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
     )
 
-    _loading.load_csv()
+    _loading.load_csv(stand_in_widget())
 
     assert len(messages) == 1
     title, text = messages[0]
@@ -859,7 +869,7 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
         _loading.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
     )
 
-    _loading.load_track_file()
+    _loading.load_track_file(stand_in_widget())
 
     assert messages == []
     combined = (tmp_path / plugin_state.combined_file).read_text().splitlines()
@@ -901,7 +911,7 @@ def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path,
         _loading.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
     )
 
-    _loading.load_track_file()
+    _loading.load_track_file(stand_in_widget())
 
     assert messages == []
     assert plugin_state.combined_extra_columns == ["label", "quality", "note"]
@@ -932,7 +942,7 @@ def test_load_track_file_refuses_file_not_starting_with_standard_columns(tmp_pat
         _loading.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
     )
 
-    _loading.load_track_file()
+    _loading.load_track_file(stand_in_widget())
 
     assert len(messages) == 1
     title, text = messages[0]
@@ -997,7 +1007,7 @@ def test_load_csv_shows_error_for_unreadable_file_and_keeps_open_dataset(tmp_pat
         _loading.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
     )
 
-    _loading.load_csv()
+    _loading.load_csv(stand_in_widget())
 
     assert len(messages) == 1
     title, text = messages[0]

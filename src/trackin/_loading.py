@@ -7,7 +7,6 @@ import os
 from datetime import datetime
 
 import numpy as np
-from magicgui import magicgui
 from napari.utils.notifications import show_info
 from qtpy.QtWidgets import QFileDialog, QMessageBox
 from skimage.io import imread
@@ -21,7 +20,6 @@ from ._interaction import show_messages, use_proposed_track
 from ._layers import update_image
 from ._navigation import image_slider, update_slider_max
 from .core.session import Session
-from .plugin_state import plugin_state
 
 
 # adds white border to images to distinct it from background
@@ -65,13 +63,12 @@ def load_images_from_folder(folder_path):
             unreadable.append(img)
     return images, image_files, unreadable
 
-def check_and_update_image():
+def check_and_update_image(w):
     """Check if both images and CSV data are loaded, then update the image."""
-    if plugin_state.images_loaded and plugin_state.csv_loaded:
+    if w.state.images_loaded and w.state.csv_loaded:
         update_image()
 
-@magicgui(call_button="Load Images", auto_call=True)
-def choose_folder():
+def choose_folder(w):
     """Open a dialog to select a folder and load images from it."""
     # _widget.py imports this file, so it is imported here rather than at the top
     from . import _widget
@@ -94,32 +91,25 @@ def choose_folder():
             )
             return
         _widget.clear_detections_and_tracks()
-        plugin_state.images, plugin_state.image_files = new_images, new_image_files
-        plugin_state.current_frame = 0
-        plugin_state.images_loaded = True
-        if plugin_state.images:
-            plugin_state.viewer.layers.clear()
-            plugin_state.viewer.add_image(plugin_state.images[plugin_state.current_frame], name=os.path.basename(plugin_state.image_files[plugin_state.current_frame]))
+        w.state.images, w.state.image_files = new_images, new_image_files
+        w.state.current_frame = 0
+        w.state.images_loaded = True
+        if w.state.images:
+            w.viewer.layers.clear()
+            w.viewer.add_image(w.state.images[w.state.current_frame], name=os.path.basename(w.state.image_files[w.state.current_frame]))
             # napari fits the view to the image on add; use that as the
             # baseline for how far this dataset can be zoomed in/out
-            fit_zoom = plugin_state.viewer.camera.zoom
-            plugin_state.min_zoom = fit_zoom * 0.5
-            plugin_state.max_zoom = fit_zoom * 30
-            check_and_update_image()
+            fit_zoom = w.viewer.camera.zoom
+            w.state.min_zoom = fit_zoom * 0.5
+            w.state.max_zoom = fit_zoom * 30
+            check_and_update_image(w)
             update_slider_max()
 
-choose_folder.call_button.native.setToolTip(
-    "Select a folder of image frames.\n"
-    "Files must be named with numeric filenames (e.g. 0.png, 1.png, ...),\n"
-    "one per frame, using a supported format: jpg, jpeg, png, tif, tiff, bmp, gif."
-)
-
-@magicgui(call_button="Load Detections", auto_call=True)
-def load_csv():
+def load_csv(w):
     """Open a dialog to select a CSV file and load its data."""
     # _widget.py imports this file, so it is imported here rather than at the top
     from . import _widget
-    if not plugin_state.images_loaded:
+    if not w.state.images_loaded:
         QMessageBox.information(None, "Load Images First", "Please load the images before loading the CSV file.")
         return
     
@@ -135,68 +125,57 @@ def load_csv():
             # a value that isn't a number in a tracking column
             QMessageBox.critical(None, "Detections Not Loaded", f"The detections file could not be read:\n\n{e}")
             return
-        frames_error = check_detection_frames(new_csv_data, len(plugin_state.images))
+        frames_error = check_detection_frames(new_csv_data, len(w.state.images))
         if frames_error:
             QMessageBox.critical(None, "Detections Not Loaded", frames_error)
             return
-        if plugin_state.csv_loaded:
+        if w.state.csv_loaded:
             _widget.clear_detections_and_tracks()
 
         csv_data = check_and_add_displ_cols(new_csv_data)
-        plugin_state.session = Session.from_dataframe(csv_data, n_frames=len(plugin_state.images))
+        w.state.session = Session.from_dataframe(csv_data, n_frames=len(w.state.images))
 
         csv_filename = csv_path.split('/')[-1].split('.')[0]
         # generate the current timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # name for file where generated tracks are saved
-        plugin_state.session_file = f'track_session_{csv_filename}_{timestamp}.csv'
+        w.state.session_file = f'track_session_{csv_filename}_{timestamp}.csv'
         # name for file where leftover positions are preserved
-        plugin_state.leftover_file = f'upd_{csv_filename}_{timestamp}.csv'
-        plugin_state.output_folder = os.path.dirname(csv_path)
+        w.state.leftover_file = f'upd_{csv_filename}_{timestamp}.csv'
+        w.state.output_folder = os.path.dirname(csv_path)
         # create the empty session file, where accepted tracks are saved
-        with open(os.path.join(plugin_state.output_folder, plugin_state.session_file), "w") as f:
+        with open(os.path.join(w.state.output_folder, w.state.session_file), "w") as f:
             f.write("")
-        plugin_state.csv_loaded = True
+        w.state.csv_loaded = True
         # Build the graph and propose the first track
-        if plugin_state.session.graph is None:
+        if w.state.session.graph is None:
             show_info("Building graph...")
-        show_messages(plugin_state.session.propose())
+        show_messages(w.state.session.propose())
         use_proposed_track()
 
-        _widget.graph_updated_event()
+        w.refresh_stats()
 
         # Start inspection from the beginning, regardless of the frame
         # the viewer happened to be on before these detections were loaded
-        plugin_state.current_frame = 0
-        image_slider.image_index.value = plugin_state.current_frame
+        w.state.current_frame = 0
+        image_slider.image_index.value = w.state.current_frame
 
-        check_and_update_image()
+        check_and_update_image(w)
 
         _widget.update_file_paths_display()
 
         # Move keyboard focus off the slider's editable readout (left focused,
         # and blinking its text cursor, after the file dialog closes) and back
-        # onto the main panel so shortcuts like arrow keys work immediately
-        if _widget.container:
-            _widget.container.setFocus()
-
-load_csv.call_button.native.setToolTip(
-    "Select a CSV of detections for the loaded image frames.\n"
-    "Required columns: tframe, y, x.\n"
-    "Optional columns: displ_y, displ_x (default to 0 if omitted),\n"
-    "and track_no (include it if these detections are already tracked).\n"
-    "Any other columns (e.g. label, area) are kept and written to the\n"
-    "output files; detections added by hand get -1 in them."
-)
+        # onto the widget so shortcuts like arrow keys work immediately
+        w.focus()
 
 # loads a file with already accepted tracks and adds these and any subsequent accepted tracks to a new track file
-@magicgui(call_button="Add Track File", auto_call=True)
-def load_track_file():
+def load_track_file(w):
     """Open a dialog to select a CSV file and load a csv with tracks generated in a previous session."""
     # _widget.py imports this file, so it is imported here rather than at the top
     from . import _widget
     
-    if not plugin_state.images_loaded or not plugin_state.csv_loaded:
+    if not w.state.images_loaded or not w.state.csv_loaded:
         QMessageBox.information(None, "Load Images and Detections First.", "Please load the images and detections before loading the track file to add new tracks to.")
         return
 
@@ -212,20 +191,20 @@ def load_track_file():
         try:
             track_df = read_track_file(csv_path)
             max_track_no = track_df['track_no'].max()
-            session = plugin_state.session
+            session = w.state.session
             # this session's accepted tracks, numbered after the track file's
             session_df = tracks_table(session.accepted, session.detections,
                                       session.extra_columns, first_track_no=max_track_no + 1)
             combined_df, combined_extra_columns = combine_tracks(track_df, session_df)
-            combined_df.to_csv(os.path.join(plugin_state.output_folder, upd_track_file), index=False)
+            combined_df.to_csv(os.path.join(w.state.output_folder, upd_track_file), index=False)
             if session.accepted:
                 show_info("Track File Updated. \n The track file has been successfully updated with the new tracks.")
             else:
                 show_info("Track File Added. \n The track file has been successfully added. New tracks will be added to the existing tracks.")
 
-            plugin_state.combined_file = upd_track_file
-            plugin_state.combined_extra_columns = combined_extra_columns
-            plugin_state.max_prior_track_id = max_track_no
+            w.state.combined_file = upd_track_file
+            w.state.combined_extra_columns = combined_extra_columns
+            w.state.max_prior_track_id = max_track_no
 
             if _widget.track_file_label is not None:
                 _widget.track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
@@ -241,10 +220,3 @@ def load_track_file():
         except Exception as e:
             QMessageBox.critical(None, "Error", f"An unexpected error occurred: {e}")
 
-load_track_file.call_button.native.setToolTip(
-    "Select a CSV of tracks accepted in a previous session, so new tracks\n"
-    "continue numbering from where that session left off.\n"
-    "Must start with these columns, in this order:\n"
-    "tframe, y, x, displ_y, displ_x, track_no.\n"
-    "Any further columns (e.g. label, area) are kept."
-)

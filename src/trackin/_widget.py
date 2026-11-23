@@ -1,13 +1,15 @@
 import os
+from functools import partial
+from magicgui import magicgui
 from qtpy.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
 from qtpy.QtCore import Qt
 import napari
 import numpy as np
 from napari.utils.events import EventEmitter
 from .plugin_state import plugin_state
+from . import _loading
 from ._help_dialog import show_help
 from ._session_files import ElidedPathLabel, create_path_row
-from ._loading import choose_folder, load_csv, load_track_file
 from ._navigation import image_slider
 from ._viewer_setup import initialize_viewer
 from .core.session import Session
@@ -84,6 +86,8 @@ class TrackinWidget(QWidget):
 
     def __init__(self, napari_viewer):
         super().__init__()
+        self.viewer = napari_viewer
+        self.state = plugin_state
         initialize_viewer(napari_viewer)
 
         global container, track_file_label
@@ -112,10 +116,35 @@ class TrackinWidget(QWidget):
         help_button.clicked.connect(show_help)
         layout.addWidget(help_button, alignment=Qt.AlignRight)
 
-        # Use the magicgui widgets and add them directly to the layout
-        layout.addWidget(choose_folder.native)  # Add the magicgui widget's native Qt widget
-        layout.addWidget(load_csv.native)
-        layout.addWidget(load_track_file.native)
+        # The three load buttons, each calling its function with this widget
+        self.load_images_button = magicgui(
+            partial(_loading.choose_folder, self), call_button="Load Images", auto_call=True)
+        self.load_images_button.call_button.native.setToolTip(
+            "Select a folder of image frames.\n"
+            "Files must be named with numeric filenames (e.g. 0.png, 1.png, ...),\n"
+            "one per frame, using a supported format: jpg, jpeg, png, tif, tiff, bmp, gif."
+        )
+        self.load_detections_button = magicgui(
+            partial(_loading.load_csv, self), call_button="Load Detections", auto_call=True)
+        self.load_detections_button.call_button.native.setToolTip(
+            "Select a CSV of detections for the loaded image frames.\n"
+            "Required columns: tframe, y, x.\n"
+            "Optional columns: displ_y, displ_x (default to 0 if omitted),\n"
+            "and track_no (include it if these detections are already tracked).\n"
+            "Any other columns (e.g. label, area) are kept and written to the\n"
+            "output files; detections added by hand get -1 in them."
+        )
+        self.add_track_file_button = magicgui(
+            partial(_loading.load_track_file, self), call_button="Add Track File", auto_call=True)
+        self.add_track_file_button.call_button.native.setToolTip(
+            "Select a CSV of tracks accepted in a previous session, so new tracks\n"
+            "continue numbering from where that session left off.\n"
+            "Must start with these columns, in this order:\n"
+            "tframe, y, x, displ_y, displ_x, track_no.\n"
+            "Any further columns (e.g. label, area) are kept."
+        )
+        for button in (self.load_images_button, self.load_detections_button, self.add_track_file_button):
+            layout.addWidget(button.native)
 
         # Shows the loaded track file's name once "Add Track File" succeeds,
         # since that success is otherwise only reported via a transient toast
@@ -182,6 +211,10 @@ class TrackinWidget(QWidget):
         container.setFocus()
         plugin_state.viewer.window.qt_viewer.dockLayerList.setVisible(False)
         plugin_state.viewer.window.qt_viewer.dockLayerControls.setVisible(False)
+
+    def focus(self):
+        """Move keyboard focus back to the widget so shortcuts keep working."""
+        self.setFocus()
 
     def refresh_stats(self, event=None):
         """Show the current number of detections and connections, or hide
