@@ -205,6 +205,26 @@ class _FakeViewer:
         self.layers = {}
 
 
+def test_refresh_stats_shows_the_counts_only_when_there_is_a_graph():
+    """The widget's Detections and Connections counts are hidden while
+    there is no graph, and show the session's numbers once there is one."""
+    parent = widget.QWidget()  # never shown, so the labels open no window
+    stand_in = SimpleNamespace(dets_label=widget.QLabel(parent), conns_label=widget.QLabel(parent))
+
+    widget.TrackinWidget.refresh_stats(stand_in)
+    assert stand_in.dets_label.isHidden() and stand_in.conns_label.isHidden()
+
+    plugin_state.session.detections = [[Detection(10, 10)], [Detection(12, 12)]]
+    plugin_state.session.graph = generate_graph(
+        plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False)
+    counts = plugin_state.session.stats()
+
+    widget.TrackinWidget.refresh_stats(stand_in)
+    assert not stand_in.dets_label.isHidden() and not stand_in.conns_label.isHidden()
+    assert stand_in.dets_label.text() == f"Detections: {counts['detections']}"
+    assert stand_in.conns_label.text() == f"Connections: {counts['connections']}"
+
+
 def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
     original_widgets = {
         name: getattr(widget, name)
@@ -216,12 +236,16 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
             "session_path_field",
             "upd_track_row",
             "upd_track_path_field",
-            "dets_label",
-            "conns_label",
             "session_files_header",
             "session_files_content",
         )
     }
+
+    # the widget's counts are refreshed through this event
+    fired = []
+    def listener(event):
+        fired.append(event)
+    widget.graph_updated_event.connect(listener)
 
     try:
         plugin_state.viewer = _FakeViewer()
@@ -240,9 +264,6 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
         )
         for row in (widget.leftover_row, widget.session_row, widget.upd_track_row):
             row.setVisible(True)  # simulate them being shown from a prior load
-
-        widget.dets_label = widget.QLabel("Detections: 42")
-        widget.conns_label = widget.QLabel("Connections: 99")
 
         widget.session_files_header = widget.QPushButton("")
         widget.session_files_header.setVisible(True)  # simulate it showing from a prior load
@@ -286,12 +307,9 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
         assert widget.session_row.isVisible() is False
         assert widget.upd_track_row.isVisible() is False
 
-        # The Detections/Connections labels only update in response to
-        # graph_updated_event -- clear_detections_and_tracks() must fire it
-        # itself, or these stay showing the *previous* dataset's stale
-        # counts until some unrelated keypress happens to fire it later.
-        assert widget.dets_label is None
-        assert widget.conns_label is None
+        # The Detections/Connections counts follow graph_updated_event, so
+        # clear_detections_and_tracks() fires it to hide them
+        assert len(fired) == 1
 
         # The Session Files card should disappear entirely (not just
         # collapse) -- there's nothing left in it to show until a new CSV
@@ -300,6 +318,7 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
         assert widget.session_files_content.isVisible() is False
         assert widget.session_files_header.text() == "▸ Session Files"
     finally:
+        widget.graph_updated_event.disconnect(listener)
         for name, value in original_widgets.items():
             setattr(widget, name, value)
 
@@ -789,9 +808,6 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(plugin_state, "images", [np.zeros((50, 50)), np.zeros((50, 50))])
     monkeypatch.setattr(_interaction, "new_point_added", False)
-    # existing labels, so the detection counter just updates them
-    monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
-    monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))
 
     # stand-ins for the napari points layer and the shift-click
     layer = SimpleNamespace(
@@ -1072,9 +1088,6 @@ def test_accept_and_delete_segment_write_the_leftover_file(tmp_path, monkeypatch
     monkeypatch.setattr(plugin_state, "output_folder", str(tmp_path))
     monkeypatch.setattr(plugin_state, "session_file", "session.csv")
     monkeypatch.setattr(plugin_state, "leftover_file", "leftover.csv")
-    # existing labels, so the detection counter just updates them
-    monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
-    monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))
     leftover = tmp_path / "leftover.csv"
 
     monkeypatch.setattr(plugin_state, "track", [0, 0])
@@ -1101,9 +1114,6 @@ def test_accept_writes_the_session_and_combined_files(tmp_path, monkeypatch):
     monkeypatch.setattr(plugin_state, "leftover_file", "leftover.csv")
     monkeypatch.setattr(plugin_state, "combined_file", "combined.csv")
     monkeypatch.setattr(plugin_state, "max_prior_track_id", 3)  # a track file with tracks 1-3 was added
-    # existing labels, so the detection counter just updates them
-    monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
-    monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))
 
     monkeypatch.setattr(plugin_state, "track", [0, 0])
     _interaction.acceptTrack()  # Shift-Q

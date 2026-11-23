@@ -16,7 +16,6 @@ container = None  # Global reference to the container
 
 
 # EVENT EMITTERS
-data_updated_event = EventEmitter(source=None, type_name='data_updated')
 graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 
 track_file_label = None  # Shows which track file was last loaded, if any
@@ -87,7 +86,7 @@ class TrackinWidget(QWidget):
         super().__init__()
         initialize_viewer(napari_viewer)
 
-        global container, dets_label, conns_label, track_file_label
+        global container, track_file_label
         global leftover_row, leftover_path_field, session_row, session_path_field
         global upd_track_row, upd_track_path_field
         global session_files_header, session_files_content
@@ -167,6 +166,14 @@ class TrackinWidget(QWidget):
         session_files_content.setVisible(False)
         layout.addWidget(session_files_content)
 
+        # The Detections and Connections counts, shown once there is a graph
+        self.dets_label = QLabel()
+        self.conns_label = QLabel()
+        layout.addWidget(self.dets_label)
+        layout.addWidget(self.conns_label)
+        self.refresh_stats()
+        graph_updated_event.connect(self.refresh_stats)
+
         # Set layout to the container
         container.setLayout(layout)
 
@@ -175,6 +182,19 @@ class TrackinWidget(QWidget):
         container.setFocus()
         plugin_state.viewer.window.qt_viewer.dockLayerList.setVisible(False)
         plugin_state.viewer.window.qt_viewer.dockLayerControls.setVisible(False)
+
+    def refresh_stats(self, event=None):
+        """Show the current number of detections and connections, or hide
+        the counts when there is no graph."""
+        has_graph = plugin_state.session.graph is not None
+        if has_graph:
+            counts = plugin_state.session.stats()
+            plugin_state.n_detections_shown = counts["detections"]
+            plugin_state.n_connections_shown = counts["connections"]
+            self.dets_label.setText(f"Detections: {plugin_state.n_detections_shown}")
+            self.conns_label.setText(f"Connections: {plugin_state.n_connections_shown}")
+        self.dets_label.setVisible(has_graph)
+        self.conns_label.setVisible(has_graph)
 
 
 def clear_detections_and_tracks():
@@ -223,44 +243,8 @@ def clear_detections_and_tracks():
     if track_file_label is not None:
         track_file_label.set_path("")
 
-    # update_labels() (the Detections/Connections counts) only runs in
-    # response to this event -- without firing it here, those labels kept
-    # showing the *previous* dataset's stale counts until some unrelated
-    # keypress happened to fire the event afterward.
+    # The widget's Detections/Connections counts follow this event, so they
+    # are hidden now that there is no graph.
     graph_updated_event()
 
     print("Cleared all detections and tracks.")
-
-# Global references for the QLabel widgets
-dets_label = None
-conns_label = None
-
-def update_labels():
-    """Update the QLabel widgets with the current count of detections and connections."""
-    global dets_label, conns_label  # Declare the variables as global to avoid NameError
-
-    if plugin_state.session.graph is not None:
-        # Compute the number of detections and connections
-        counts = plugin_state.session.stats()
-        plugin_state.n_detections_shown = counts["detections"]
-        plugin_state.n_connections_shown = counts["connections"]
-
-        # Check if labels exist, if not create and add them to the layout
-        if dets_label is None:
-            dets_label = QLabel(f"Detections: {plugin_state.n_detections_shown}")
-            conns_label = QLabel(f"Connections: {plugin_state.n_connections_shown}")
-            container.layout().addWidget(dets_label)  # Add the labels to the layout dynamically
-            container.layout().addWidget(conns_label)
-        else:
-            # If the labels already exist, just update the text
-            dets_label.setText(f"Detections: {plugin_state.n_detections_shown}")
-            conns_label.setText(f"Connections: {plugin_state.n_connections_shown}")
-    else:
-        # If there is no graph, remove or hide the labels (if necessary)
-        if dets_label is not None and conns_label is not None:
-            dets_label.setParent(None)  # Remove the label from the layout
-            conns_label.setParent(None)
-            dets_label = None  # Reset the label references
-            conns_label = None
-
-graph_updated_event.connect(update_labels)
