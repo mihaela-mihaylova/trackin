@@ -9,7 +9,7 @@ from .plugin_state import plugin_state
 from . import _loading
 from ._help_dialog import show_help
 from ._session_files import ElidedPathLabel, create_path_row
-from ._navigation import image_slider
+from ._navigation import Navigator
 from ._viewer_setup import initialize_viewer
 from .core.session import Session
 
@@ -84,6 +84,7 @@ class TrackinWidget(QWidget):
         super().__init__()
         self.viewer = napari_viewer
         self.state = plugin_state
+        self.navigator = Navigator(self)
         initialize_viewer(self)
 
         global container, track_file_label
@@ -148,7 +149,7 @@ class TrackinWidget(QWidget):
         track_file_label.setStyleSheet("color: gray; font-style: italic;")
         layout.addWidget(track_file_label)
 
-        layout.addWidget(image_slider.native)  # Add the slider widget
+        layout.addWidget(self.navigator.image_slider.native)  # Add the slider widget
 
         # Collapsible "Session Files" card wrapping the copyable output-file-path
         # rows, shown/updated as state changes. Starts collapsed since there's

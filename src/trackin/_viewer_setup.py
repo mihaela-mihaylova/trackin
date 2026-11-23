@@ -2,7 +2,6 @@
 keyboard shortcuts."""
 
 from ._interaction import acceptTrack, deleteAllConnections, deleteSegment, delete_detection, saveSegment
-from ._navigation import handle_left, handle_right, left_timer, next_image, previous_image, right_timer
 from .plugin_state import plugin_state
 
 ZOOM_STEP = 1.1  # multiplicative zoom change per wheel notch
@@ -34,8 +33,7 @@ def on_mouse_wheel_zoom(viewer, event):
     event.handled = True
 
 def initialize_viewer(w):
-    """Set up the viewer of the widget w: its key bindings, scroll-to-zoom
-    and the arrow-key timers."""
+    """Set up the viewer of the widget w: its key bindings and scroll-to-zoom."""
     plugin_state.viewer = w.viewer
 
     # Set up key bindings for the viewer
@@ -47,15 +45,11 @@ def initialize_viewer(w):
     # Backstop in case zoom changes through some other path (e.g. reset_view)
     w.viewer.camera.events.zoom.connect(clamp_camera_zoom)
 
-    # Set up the timers for handling repeated key presses
-    right_timer.timeout.connect(next_image)
-    left_timer.timeout.connect(previous_image)
-
 
 def setup_keybindings(w):
     """Set up key bindings for the viewer, each action called with the widget w."""
-    w.viewer.bind_key('Right', handle_right)  # Right arrow key to move to the next image
-    w.viewer.bind_key('Left', handle_left)  # Left arrow key to move to the previous image
+    w.viewer.bind_key('Right', w.navigator.handle_right)  # Right arrow key to move to the next image
+    w.viewer.bind_key('Left', w.navigator.handle_left)  # Left arrow key to move to the previous image
     w.viewer.bind_key('D', lambda viewer: delete_detection(w, viewer.layers.selection.active, use_key=True))  # Trigger only for D key
     w.viewer.bind_key('Shift-Q', lambda viewer: acceptTrack(w))
     w.viewer.bind_key('W', lambda viewer: saveSegment(w)) # save correct segment

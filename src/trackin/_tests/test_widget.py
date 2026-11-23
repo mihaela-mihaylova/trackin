@@ -380,10 +380,34 @@ def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
     monkeypatch.setattr(plugin_state, "leftover_file", "updated.csv")
     monkeypatch.setattr(plugin_state.session, "graph", generate_graph(
         plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False))
-    _interaction.delete_det_by_key(stand_in_widget(), _FakeLayer(np.array([[12.0, 22.0], [30.0, 40.0]])), 0)
+    w = stand_in_widget()
+    # the slider shows frame 1, where the view is
+    w.navigator.image_slider.image_index.max = 1
+    w.navigator.image_slider.image_index.value = 1
+
+    _interaction.delete_det_by_key(w, _FakeLayer(np.array([[12.0, 22.0], [30.0, 40.0]])), 0)
 
     assert plugin_state.current_frame == 0
-    assert _navigation.image_slider.image_index.value == 0
+    assert w.navigator.image_slider.image_index.value == 0
+
+
+def test_each_widget_has_its_own_navigator():
+    """Two widgets each get their own Frame slider, arrow-key timers and
+    held-key flags, so moving or holding a key in one leaves the other alone."""
+    w1, w2 = stand_in_widget(), stand_in_widget()
+    assert w1.navigator.image_slider is not w2.navigator.image_slider
+    assert w1.navigator.right_timer is not w2.navigator.right_timer
+
+    w1.navigator.image_slider.image_index.max = 5
+    assert w2.navigator.image_slider.image_index.max == 0
+
+    w1.navigator.right_key_held = True
+    _navigation.start_timer(w1.navigator.right_timer)
+    try:
+        assert w2.navigator.right_key_held is False
+        assert not w2.navigator.right_timer.isActive()
+    finally:
+        _navigation.stop_timer(w1.navigator.right_timer)
 
 
 def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):

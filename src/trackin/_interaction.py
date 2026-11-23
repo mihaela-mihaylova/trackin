@@ -13,7 +13,6 @@ from napari.utils.notifications import show_info
 from qtpy.QtCore import QTimer
 
 from ._layers import update_image
-from ._navigation import image_slider, next_image
 from .core.io import append_to_combined_file, append_to_session_file, write_leftover_file
 
 
@@ -111,7 +110,7 @@ def delete_det_by_key(w, layer, clicked_index):
     # frame 0, as after accepting a track or saving a segment
     w.state.current_frame = 0
     update_image()
-    image_slider.image_index.value = w.state.current_frame  # Sync the slider value
+    w.navigator.image_slider.image_index.value = w.state.current_frame  # Sync the slider value
     # Move keyboard focus off the slider's number box, back to the widget,
     # so keys like D and the arrows keep working
     w.focus()
@@ -157,7 +156,7 @@ def on_click(w, layer, event):
         if clicked_index is not None and clicked_index >= 0:
             # If a valid point was clicked, update the track and go to the next image
             w.state.track[w.state.current_frame] = clicked_index
-            next_image()
+            w.navigator.next_image()
         else:
             print("Clicked outside of any detection point.")
 
@@ -226,7 +225,7 @@ def acceptTrack(w, event=None):
     use_proposed_track(w)
     w.state.current_frame = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
-    image_slider.image_index.value = w.state.current_frame  # Sync the slider value
+    w.navigator.image_slider.image_index.value = w.state.current_frame  # Sync the slider value
     w.refresh_stats()
     # Refocus the widget after handling the event
     w.focus()
@@ -238,7 +237,7 @@ def saveSegment(w, event=None):
     use_proposed_track(w)
     w.state.current_frame = 0  # Reset to the first frame (frame 0)
     update_image()
-    image_slider.image_index.value = w.state.current_frame  # Sync the slider value
+    w.navigator.image_slider.image_index.value = w.state.current_frame  # Sync the slider value
     # Refocus the widget after handling the event
     w.focus()
 
@@ -248,7 +247,7 @@ def deleteSegment(w, event=None):
     use_proposed_track(w)
     w.state.current_frame = 0  # Reset to the first frame (frame 0)
     update_image()  # Update the displayed image
-    image_slider.image_index.value = w.state.current_frame  # Sync the slider value
+    w.navigator.image_slider.image_index.value = w.state.current_frame  # Sync the slider value
     w.refresh_stats()
     # Refocus the widget after handling the event
     w.focus()

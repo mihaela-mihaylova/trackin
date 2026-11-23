@@ -18,7 +18,6 @@ from .core.io import (
 )
 from ._interaction import show_messages, use_proposed_track
 from ._layers import update_image
-from ._navigation import image_slider, update_slider_max
 from .core.session import Session
 
 
@@ -103,7 +102,7 @@ def choose_folder(w):
             w.state.min_zoom = fit_zoom * 0.5
             w.state.max_zoom = fit_zoom * 30
             check_and_update_image(w)
-            update_slider_max()
+            w.navigator.update_slider_max()
 
 def load_csv(w):
     """Open a dialog to select a CSV file and load its data."""
@@ -158,7 +157,7 @@ def load_csv(w):
         # Start inspection from the beginning, regardless of the frame
         # the viewer happened to be on before these detections were loaded
         w.state.current_frame = 0
-        image_slider.image_index.value = w.state.current_frame
+        w.navigator.image_slider.image_index.value = w.state.current_frame
 
         check_and_update_image(w)
 
