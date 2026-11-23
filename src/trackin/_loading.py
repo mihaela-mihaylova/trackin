@@ -65,7 +65,7 @@ def load_images_from_folder(folder_path):
 def check_and_update_image(w):
     """Check if both images and CSV data are loaded, then update the image."""
     if w.state.images_loaded and w.state.csv_loaded:
-        update_image()
+        update_image(w)
 
 def choose_folder(w):
     """Open a dialog to select a folder and load images from it."""

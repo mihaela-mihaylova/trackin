@@ -495,7 +495,7 @@ def test_update_image_draws_detections_of_file_without_track_no(monkeypatch):
     monkeypatch.setattr(plugin_state, "track", [0])
     monkeypatch.setattr(plugin_state, "current_frame", 0)
 
-    _layers.update_image()
+    _layers.update_image(stand_in_widget())
 
     assert len(viewer.layers["detections"].data) == 2
 
@@ -514,7 +514,7 @@ def test_update_image_hides_deleted_detections(monkeypatch):
     monkeypatch.setattr(plugin_state, "track", [0])
     monkeypatch.setattr(plugin_state, "current_frame", 0)
 
-    _layers.update_image()
+    _layers.update_image(stand_in_widget())
 
     points = viewer.layers["detections"].data.tolist()
     assert points == [[10, 10], [-1000000, -1000000]]
@@ -540,12 +540,12 @@ def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     monkeypatch.setattr(plugin_state, "track", [0, -1])
 
     monkeypatch.setattr(plugin_state, "current_frame", 0)
-    _layers.update_image()
+    _layers.update_image(stand_in_widget())
     assert len(viewer.layers["detections"].data) == 1
     assert len(viewer.layers["track_point"].data) == 1
 
     monkeypatch.setattr(plugin_state, "current_frame", 1)
-    _layers.update_image()
+    _layers.update_image(stand_in_widget())
     assert len(viewer.layers["detections"].data) == 0
     assert len(viewer.layers["track_point"].data) == 0
 
@@ -565,12 +565,12 @@ def test_track_lines_are_drawn_again_after_being_emptied(monkeypatch):
     monkeypatch.setattr(plugin_state, "current_frame", 0)
 
     monkeypatch.setattr(plugin_state, "track", [0, 0, 0])   # a track over 3 frames: 2 lines
-    _layers.update_image()
+    _layers.update_image(stand_in_widget())
     monkeypatch.setattr(plugin_state, "track", [0, -1, -1])  # a single point: no lines, layer emptied
-    _layers.update_image()
+    _layers.update_image(stand_in_widget())
     assert len(viewer.layers["track_lines"].data) == 0
     monkeypatch.setattr(plugin_state, "track", [0, 0, 0])   # a track over 3 frames again
-    _layers.update_image()
+    _layers.update_image(stand_in_widget())
 
     assert viewer.layers["track_lines"].shape_type == ["line", "line"]
 

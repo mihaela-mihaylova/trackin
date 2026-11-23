@@ -109,7 +109,7 @@ def delete_det_by_key(w, layer, clicked_index):
     # The new track can differ in earlier frames too, so show it from
     # frame 0, as after accepting a track or saving a segment
     w.state.current_frame = 0
-    update_image()
+    update_image(w)
     w.navigator.image_slider.image_index.value = w.state.current_frame  # Sync the slider value
     # Move keyboard focus off the slider's number box, back to the widget,
     # so keys like D and the arrows keep working
@@ -130,7 +130,7 @@ def delete_det_by_mouse(w, layer, clicked_index, event):
     w.state.session.delete_detection(w.state.current_frame, clicked_index)
 
     layer.refresh()
-    update_image()
+    update_image(w)
 
     # save up-to-date version of the detections
     save_leftover_file(w)
@@ -224,7 +224,7 @@ def acceptTrack(w, event=None):
     save_leftover_file(w)
     use_proposed_track(w)
     w.state.current_frame = 0  # Reset to the first frame (frame 0)
-    update_image()  # Update the displayed image
+    update_image(w)  # Update the displayed image
     w.navigator.image_slider.image_index.value = w.state.current_frame  # Sync the slider value
     w.refresh_stats()
     # Refocus the widget after handling the event
@@ -236,7 +236,7 @@ def saveSegment(w, event=None):
     show_messages(w.state.session.save_segment(w.state.track, w.state.current_frame))
     use_proposed_track(w)
     w.state.current_frame = 0  # Reset to the first frame (frame 0)
-    update_image()
+    update_image(w)
     w.navigator.image_slider.image_index.value = w.state.current_frame  # Sync the slider value
     # Refocus the widget after handling the event
     w.focus()
@@ -246,7 +246,7 @@ def deleteSegment(w, event=None):
     save_leftover_file(w)
     use_proposed_track(w)
     w.state.current_frame = 0  # Reset to the first frame (frame 0)
-    update_image()  # Update the displayed image
+    update_image(w)  # Update the displayed image
     w.navigator.image_slider.image_index.value = w.state.current_frame  # Sync the slider value
     w.refresh_stats()
     # Refocus the widget after handling the event
@@ -255,7 +255,7 @@ def deleteSegment(w, event=None):
 def deleteAllConnections(w, event=None):
     """Triggers the function which would delete all outgoing edges (apart from an X- or T-edge)"""
     show_messages(w.state.session.delete_all_connections(w.state.track, w.state.current_frame))
-    update_image()
+    update_image(w)
     w.refresh_stats()
     # Refocus the widget after handling the event
     w.focus()

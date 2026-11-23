@@ -39,7 +39,7 @@ class Navigator:
         state = self.w.state
         if state.images:
             state.current_frame = (state.current_frame + 1) % len(state.images)
-            update_image()
+            update_image(self.w)
             self.image_slider.image_index.value = state.current_frame  # Sync slider value
 
         # Refocus the widget after key press
@@ -51,7 +51,7 @@ class Navigator:
         state = self.w.state
         if state.images:
             state.current_frame = (state.current_frame - 1) % len(state.images)
-            update_image()
+            update_image(self.w)
             self.image_slider.image_index.value = state.current_frame  # Sync slider value
 
         # Refocus the widget after key press
@@ -62,7 +62,7 @@ class Navigator:
         state = self.w.state
         if image_index != state.current_frame:
             state.current_frame = image_index
-            update_image()
+            update_image(self.w)
             # Refocus the widget after slider change
             self.w.focus()
 
