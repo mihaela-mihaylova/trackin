@@ -1,7 +1,7 @@
 import pytest
 
 from trackin.core.detection import Detection
-from trackin._widget import save_accepted_track
+from trackin._interaction import save_accepted_track
 from trackin.plugin_state import plugin_state
 from trackin.core.tracking import generate_graph
 

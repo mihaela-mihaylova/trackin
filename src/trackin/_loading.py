@@ -17,6 +17,7 @@ from .core.io import (
     combine_tracks, format_list, generate_upd_track_filename, list_image_files,
     read_detections_csv, read_track_file, tracks_table,
 )
+from ._interaction import show_messages, use_proposed_track
 from ._layers import update_image
 from ._navigation import image_slider, update_slider_max
 from .core.session import Session
@@ -159,8 +160,8 @@ def load_csv():
         # Build the graph and propose the first track
         if plugin_state.session.graph is None:
             show_info("Building graph...")
-        _widget.show_messages(plugin_state.session.propose())
-        _widget.use_proposed_track()
+        show_messages(plugin_state.session.propose())
+        use_proposed_track()
 
         _widget.graph_updated_event()
 

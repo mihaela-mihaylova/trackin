@@ -6,6 +6,7 @@ import pandas as pd
 from napari.components import ViewerModel
 from skimage.io import imsave
 
+import trackin._interaction as _interaction
 import trackin._layers as _layers
 import trackin._loading as _loading
 import trackin._navigation as _navigation
@@ -311,7 +312,7 @@ def test_delete_detection_d_key_no_op_when_track_is_empty_list():
     original_track = plugin_state.track
     try:
         plugin_state.track = []
-        widget.delete_detection(None, use_key=True)  # must not raise
+        _interaction.delete_detection(None, use_key=True)  # must not raise
     finally:
         plugin_state.track = original_track
 
@@ -331,7 +332,7 @@ def test_delete_det_by_key_writes_updated_detections_file(tmp_path):
     """Deleting a detection via the 'D' key marked it as removed in
     plugin_state.session.detections but never persisted that to the leftover file --
     unlike adding a detection, which already did via the same function."""
-    original_clicked_index = getattr(widget, "clicked_index", None)
+    original_clicked_index = getattr(_interaction, "clicked_index", None)
 
     try:
         plugin_state.current_frame = 0
@@ -343,16 +344,16 @@ def test_delete_det_by_key_writes_updated_detections_file(tmp_path):
         plugin_state.session.graph = generate_graph(
             plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False
         )
-        widget.clicked_index = 0
+        _interaction.clicked_index = 0
 
         layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
-        widget.delete_det_by_key(layer)
+        _interaction.delete_det_by_key(layer)
 
         lines = (tmp_path / "updated.csv").read_text().splitlines()
         assert lines[0] == "tframe,y,x,displ_y,displ_x"
         assert lines[1] == "0,30,40,0,0"  # the deleted detection is excluded
     finally:
-        widget.clicked_index = original_clicked_index
+        _interaction.clicked_index = original_clicked_index
 
 
 def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
@@ -367,9 +368,9 @@ def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
     monkeypatch.setattr(plugin_state, "leftover_file", "updated.csv")
     monkeypatch.setattr(plugin_state.session, "graph", generate_graph(
         plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False))
-    monkeypatch.setattr(widget, "clicked_index", 0)
+    monkeypatch.setattr(_interaction, "clicked_index", 0)
 
-    widget.delete_det_by_key(_FakeLayer(np.array([[12.0, 22.0], [30.0, 40.0]])))
+    _interaction.delete_det_by_key(_FakeLayer(np.array([[12.0, 22.0], [30.0, 40.0]])))
 
     assert plugin_state.current_frame == 0
     assert _navigation.image_slider.image_index.value == 0
@@ -377,7 +378,7 @@ def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
 
 def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
     """Same bug as the 'D' key path, via right-click deletion instead."""
-    original_clicked_index = getattr(widget, "clicked_index", None)
+    original_clicked_index = getattr(_interaction, "clicked_index", None)
 
     try:
         plugin_state.current_frame = 0
@@ -388,18 +389,18 @@ def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
         plugin_state.session.graph = generate_graph(
             plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False
         )
-        widget.clicked_index = 1
+        _interaction.clicked_index = 1
 
         layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
         event = SimpleNamespace(handled=False)
-        widget.delete_det_by_mouse(layer, event)
+        _interaction.delete_det_by_mouse(layer, event)
 
         lines = (tmp_path / "updated.csv").read_text().splitlines()
         assert lines[0] == "tframe,y,x,displ_y,displ_x"
         assert lines[1] == "0,10,20,0,0"  # the deleted detection (index 1) is excluded
         assert event.handled is True
     finally:
-        widget.clicked_index = original_clicked_index
+        _interaction.clicked_index = original_clicked_index
 
 
 def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
@@ -756,8 +757,8 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     )
 
     plugin_state.session.accept_track(plugin_state.track)
-    widget.save_accepted_track()
-    widget.save_leftover_file()
+    _interaction.save_accepted_track()
+    _interaction.save_leftover_file()
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
@@ -787,7 +788,7 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
         generate_graph(plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False),
     )
     monkeypatch.setattr(plugin_state, "images", [np.zeros((50, 50)), np.zeros((50, 50))])
-    monkeypatch.setattr(widget, "new_point_added", False)
+    monkeypatch.setattr(_interaction, "new_point_added", False)
     # existing labels, so the detection counter just updates them
     monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
     monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))
@@ -802,7 +803,7 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
     )
     event = SimpleNamespace(button=1, modifiers=["Shift"], position=(30, 40))
 
-    widget.add_detection(layer, event)
+    _interaction.add_detection(layer, event)
 
     added = plugin_state.session.detections[0][1]
     assert added.extra == (-1,)
@@ -952,7 +953,7 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
     )
 
     plugin_state.session.accept_track(plugin_state.track)
-    widget.save_accepted_track()
+    _interaction.save_accepted_track()
 
     assert (tmp_path / "combined.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
@@ -1035,12 +1036,12 @@ def test_click_changes_the_edited_track_not_the_proposal(monkeypatch):
     clicking a detection changes that copy (which W, Shift-Z, X and accept
     are given), while the session's proposal stays as the session made it."""
     monkeypatch.setattr(plugin_state.session, "proposal", [0, 0])  # the proposal
-    widget.use_proposed_track()
+    _interaction.use_proposed_track()
     monkeypatch.setattr(plugin_state, "current_frame", 1)
-    monkeypatch.setattr(widget, "new_point_added", False)
+    monkeypatch.setattr(_interaction, "new_point_added", False)
     layer = SimpleNamespace(get_value=lambda position, world: 1)  # the click hits detection 1
 
-    widget.on_click(layer, SimpleNamespace(button=1, position=(5, 5)))
+    _interaction.on_click(layer, SimpleNamespace(button=1, position=(5, 5)))
 
     assert plugin_state.track == [0, 1]
     assert plugin_state.session.proposal == [0, 0]
@@ -1077,12 +1078,12 @@ def test_accept_and_delete_segment_write_the_leftover_file(tmp_path, monkeypatch
     leftover = tmp_path / "leftover.csv"
 
     monkeypatch.setattr(plugin_state, "track", [0, 0])
-    widget.acceptTrack()  # Shift-Q
+    _interaction.acceptTrack()  # Shift-Q
     assert leftover.read_text().splitlines() == ["tframe,y,x,displ_y,displ_x", "0,50,50,0,0", "1,52,52,0,0"]
 
     monkeypatch.setattr(plugin_state, "track", [1, 1])
     monkeypatch.setattr(plugin_state, "current_frame", 1)
-    widget.deleteSegment()  # Shift-Z
+    _interaction.deleteSegment()  # Shift-Z
     assert leftover.read_text().splitlines() == ["tframe,y,x,displ_y,displ_x"]
 
 
@@ -1105,7 +1106,7 @@ def test_accept_writes_the_session_and_combined_files(tmp_path, monkeypatch):
     monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))
 
     monkeypatch.setattr(plugin_state, "track", [0, 0])
-    widget.acceptTrack()  # Shift-Q
+    _interaction.acceptTrack()  # Shift-Q
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no", "0,10,10,0,0,1", "1,12,12,0,0,1"]

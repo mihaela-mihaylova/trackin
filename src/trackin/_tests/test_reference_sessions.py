@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from trackin._widget import save_accepted_track, save_leftover_file, use_proposed_track
+from trackin._interaction import save_accepted_track, save_leftover_file, use_proposed_track
 from trackin.core.io import check_and_add_displ_cols, read_detections_csv
 from trackin.core.session import Session
 from trackin.plugin_state import PluginState, plugin_state

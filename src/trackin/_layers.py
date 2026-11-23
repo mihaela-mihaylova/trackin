@@ -52,9 +52,9 @@ def overlay_points(frame_data):
     For a frame without detections the layers are emptied, so no points of
     another frame stay on screen."""
     # The click handlers are imported here rather than at the top, since
-    # _widget.py imports this file: imported at the top, each would wait
+    # _interaction.py imports this file: imported at the top, each would wait
     # for the other to load first.
-    from ._widget import add_detection, delete_detection, on_click
+    from ._interaction import add_detection, delete_detection, on_click
 
     # Extract (y, x) positions from the dataframe: one row [y, x] per detection.
     # For a frame without detections this is an empty array with no rows,
