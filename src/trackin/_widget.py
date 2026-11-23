@@ -5,7 +5,6 @@ from qtpy.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
 from qtpy.QtCore import Qt
 import napari
 import numpy as np
-from napari.utils.events import EventEmitter
 from .plugin_state import plugin_state
 from . import _loading
 from ._help_dialog import show_help
@@ -16,9 +15,6 @@ from .core.session import Session
 
 container = None  # Global reference to the container
 
-
-# EVENT EMITTERS
-graph_updated_event = EventEmitter(source=None, type_name='graph_updated')
 
 track_file_label = None  # Shows which track file was last loaded, if any
 
@@ -88,7 +84,7 @@ class TrackinWidget(QWidget):
         super().__init__()
         self.viewer = napari_viewer
         self.state = plugin_state
-        initialize_viewer(napari_viewer)
+        initialize_viewer(self)
 
         global container, track_file_label
         global leftover_row, leftover_path_field, session_row, session_path_field
@@ -201,7 +197,6 @@ class TrackinWidget(QWidget):
         layout.addWidget(self.dets_label)
         layout.addWidget(self.conns_label)
         self.refresh_stats()
-        graph_updated_event.connect(self.refresh_stats)
 
         # Set layout to the container
         container.setLayout(layout)
@@ -230,7 +225,7 @@ class TrackinWidget(QWidget):
         self.conns_label.setVisible(has_graph)
 
 
-def clear_detections_and_tracks():
+def clear_detections_and_tracks(w):
     """Explicitly clear detection points and track lines from the Napari viewer."""
     
     # Check and clear the 'detections' layer if it exists
@@ -276,8 +271,7 @@ def clear_detections_and_tracks():
     if track_file_label is not None:
         track_file_label.set_path("")
 
-    # The widget's Detections/Connections counts follow this event, so they
-    # are hidden now that there is no graph.
-    graph_updated_event()
+    # There is no graph now, so this hides the widget's counts
+    w.refresh_stats()
 
     print("Cleared all detections and tracks.")

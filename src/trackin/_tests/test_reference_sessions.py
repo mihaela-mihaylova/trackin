@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 from trackin._interaction import save_accepted_track, save_leftover_file, use_proposed_track
+from trackin._tests.stand_in_widget import stand_in_widget
 from trackin.core.io import check_and_add_displ_cols, read_detections_csv
 from trackin.core.session import Session
 from trackin.plugin_state import PluginState, plugin_state
@@ -40,7 +41,7 @@ def load(detections, folder, max_score=1600, score_func="squared"):
     plugin_state.leftover_file = "leftover.csv"
     (folder / "session.csv").write_text("")  # the empty session file, as the plugin creates it
     plugin_state.session.propose()
-    use_proposed_track()
+    use_proposed_track(stand_in_widget())
 
 
 def index_at(frame, y, x):
@@ -53,15 +54,15 @@ def delete_with_d(frame):
     plugin_state.session.delete_detection(frame, plugin_state.track[frame])
     plugin_state.track[frame] = -1
     plugin_state.session.propose()
-    use_proposed_track()
-    save_leftover_file()
+    use_proposed_track(stand_in_widget())
+    save_leftover_file(stand_in_widget())
 
 
 def delete_with_right_click(frame, index):
     """Right-click on a detection that is not on the track: delete it,
     without proposing again."""
     plugin_state.session.delete_detection(frame, index)
-    save_leftover_file()
+    save_leftover_file(stand_in_widget())
 
 
 # --- The sessions ----------------------------------------------------------
@@ -86,7 +87,7 @@ def replay_edits(folder):
 
     # W at frame 2: save the track up to frame 2
     plugin_state.session.save_segment(plugin_state.track, 2)
-    use_proposed_track()
+    use_proposed_track(stand_in_widget())
     note("W at frame 2")
 
     # Left-click at frame 3: pick the noise detection instead of the proposed one
@@ -103,7 +104,7 @@ def replay_edits(folder):
 
     # Shift-click at frame 4: add a detection by hand at (40, 40)
     plugin_state.session.add_detection(4, 40, 40)
-    save_leftover_file()
+    save_leftover_file(stand_in_widget())
     note("add at frame 4")
 
     # X at frame 2: delete the connections after frame 2
@@ -112,23 +113,23 @@ def replay_edits(folder):
 
     # Shift-Q: accept the track
     plugin_state.session.accept_track(plugin_state.track)
-    save_accepted_track()
-    save_leftover_file()
-    use_proposed_track()
+    save_accepted_track(stand_in_widget())
+    save_leftover_file(stand_in_widget())
+    use_proposed_track(stand_in_widget())
     note("accept")
 
     # Shift-Z at frame 3: delete the segment up to frame 3
     plugin_state.session.delete_segment(plugin_state.track, 3)
-    save_leftover_file()
-    use_proposed_track()
+    save_leftover_file(stand_in_widget())
+    use_proposed_track(stand_in_widget())
     note("Shift-Z at frame 3")
 
     # Shift-Q until nothing is left
     while plugin_state.track:
         plugin_state.session.accept_track(plugin_state.track)
-        save_accepted_track()
-        save_leftover_file()
-        use_proposed_track()
+        save_accepted_track(stand_in_widget())
+        save_leftover_file(stand_in_widget())
+        use_proposed_track(stand_in_widget())
         note("accept")
 
     return steps
@@ -141,9 +142,9 @@ def replay_accept_all(folder, detections, **settings):
     while plugin_state.track:
         tracks.append(list(plugin_state.track))
         plugin_state.session.accept_track(plugin_state.track)
-        save_accepted_track()
-        save_leftover_file()
-        use_proposed_track()
+        save_accepted_track(stand_in_widget())
+        save_leftover_file(stand_in_widget())
+        use_proposed_track(stand_in_widget())
     return tracks
 
 

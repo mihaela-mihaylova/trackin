@@ -90,7 +90,7 @@ def choose_folder(w):
                 "frame numbers."
             )
             return
-        _widget.clear_detections_and_tracks()
+        _widget.clear_detections_and_tracks(w)
         w.state.images, w.state.image_files = new_images, new_image_files
         w.state.current_frame = 0
         w.state.images_loaded = True
@@ -130,7 +130,7 @@ def load_csv(w):
             QMessageBox.critical(None, "Detections Not Loaded", frames_error)
             return
         if w.state.csv_loaded:
-            _widget.clear_detections_and_tracks()
+            _widget.clear_detections_and_tracks(w)
 
         csv_data = check_and_add_displ_cols(new_csv_data)
         w.state.session = Session.from_dataframe(csv_data, n_frames=len(w.state.images))
@@ -151,7 +151,7 @@ def load_csv(w):
         if w.state.session.graph is None:
             show_info("Building graph...")
         show_messages(w.state.session.propose())
-        use_proposed_track()
+        use_proposed_track(w)
 
         w.refresh_stats()
 

@@ -55,6 +55,8 @@ def overlay_points(frame_data):
     # _interaction.py imports this file: imported at the top, each would wait
     # for the other to load first.
     from ._interaction import add_detection, delete_detection, on_click
+    # _widget.py imports this file too, so it is imported here as well
+    from . import _widget
 
     # Extract (y, x) positions from the dataframe: one row [y, x] per detection.
     # For a frame without detections this is an empty array with no rows,
@@ -81,10 +83,11 @@ def overlay_points(frame_data):
             border_width_is_relative=False,
             name='detections'
         )
-        # Attach event handlers if necessary
-        points_layer.mouse_drag_callbacks.append(delete_detection)
-        points_layer.mouse_drag_callbacks.append(add_detection)
-        points_layer.mouse_drag_callbacks.append(on_click)
+        # Attach the click handlers, each called with the widget
+        w = _widget.container
+        points_layer.mouse_drag_callbacks.append(lambda layer, event: delete_detection(w, layer, event))
+        points_layer.mouse_drag_callbacks.append(lambda layer, event: add_detection(w, layer, event))
+        points_layer.mouse_drag_callbacks.append(lambda layer, event: on_click(w, layer, event))
 
     # Prepare attributes for the main points layer
     border_colors = ['white'] * len(points)

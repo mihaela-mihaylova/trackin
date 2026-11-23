@@ -21,6 +21,9 @@ class PluginState:
         self.track = []             # the track being edited: a copy of the session's proposal, with the user's clicks
         self.n_detections_shown = None        # the "Detections" number shown
         self.n_connections_shown = None        # the "Connections" number shown
+        # set for a moment after Shift-click adds a point, so the same click
+        # doesn't also put the new point on the track
+        self.new_point_added = False
         self.clear_files()
 
     def clear_files(self):

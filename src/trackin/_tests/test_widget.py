@@ -18,15 +18,8 @@ from trackin._loading import add_white_border
 from trackin.core.io import check_and_add_displ_cols, generate_upd_track_filename, write_leftover_file
 from trackin.plugin_state import plugin_state
 from trackin.core.tracking import generate_graph
+from trackin._tests.stand_in_widget import stand_in_widget
 
-
-def stand_in_widget():
-    """A stand-in for the Trackin widget, with the parts the plugin's
-    functions use: the state, the viewer, and focus/refresh_stats doing
-    nothing. A real widget would need a napari window, which the test
-    machines don't all have."""
-    return SimpleNamespace(state=plugin_state, viewer=plugin_state.viewer,
-                           focus=lambda: None, refresh_stats=lambda: None)
 
 
 def test_check_and_add_displ_cols_adds_missing_columns():
@@ -251,11 +244,10 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
         )
     }
 
-    # the widget's counts are refreshed through this event
-    fired = []
-    def listener(event):
-        fired.append(event)
-    widget.graph_updated_event.connect(listener)
+    # the widget's counts are refreshed by its refresh_stats
+    w = stand_in_widget()
+    refreshed = []
+    w.refresh_stats = lambda: refreshed.append(True)
 
     try:
         plugin_state.viewer = _FakeViewer()
@@ -296,7 +288,7 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
         plugin_state.n_detections_shown = 42
         plugin_state.n_connections_shown = 99
 
-        widget.clear_detections_and_tracks()
+        widget.clear_detections_and_tracks(w)
 
         assert plugin_state.session.detections == []
         assert plugin_state.track == []
@@ -317,9 +309,8 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
         assert widget.session_row.isVisible() is False
         assert widget.upd_track_row.isVisible() is False
 
-        # The Detections/Connections counts follow graph_updated_event, so
-        # clear_detections_and_tracks() fires it to hide them
-        assert len(fired) == 1
+        # There is no graph left, so the widget's counts are refreshed to hide them
+        assert len(refreshed) == 1
 
         # The Session Files card should disappear entirely (not just
         # collapse) -- there's nothing left in it to show until a new CSV
@@ -328,7 +319,6 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
         assert widget.session_files_content.isVisible() is False
         assert widget.session_files_header.text() == "▸ Session Files"
     finally:
-        widget.graph_updated_event.disconnect(listener)
         for name, value in original_widgets.items():
             setattr(widget, name, value)
 
@@ -341,7 +331,7 @@ def test_delete_detection_d_key_no_op_when_track_is_empty_list():
     original_track = plugin_state.track
     try:
         plugin_state.track = []
-        _interaction.delete_detection(None, use_key=True)  # must not raise
+        _interaction.delete_detection(stand_in_widget(), None, use_key=True)  # must not raise
     finally:
         plugin_state.track = original_track
 
@@ -361,28 +351,21 @@ def test_delete_det_by_key_writes_updated_detections_file(tmp_path):
     """Deleting a detection via the 'D' key marked it as removed in
     plugin_state.session.detections but never persisted that to the leftover file --
     unlike adding a detection, which already did via the same function."""
-    original_clicked_index = getattr(_interaction, "clicked_index", None)
+    plugin_state.current_frame = 0
+    plugin_state.session.detections = [[Detection(10, 20), Detection(30, 40)]]
+    plugin_state.session.has_prior_tracks = False
+    plugin_state.track = [-1]
+    plugin_state.output_folder = str(tmp_path)
+    plugin_state.leftover_file = "updated.csv"
+    plugin_state.session.graph = generate_graph(
+        plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False
+    )
+    layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
+    _interaction.delete_det_by_key(stand_in_widget(), layer, 0)
 
-    try:
-        plugin_state.current_frame = 0
-        plugin_state.session.detections = [[Detection(10, 20), Detection(30, 40)]]
-        plugin_state.session.has_prior_tracks = False
-        plugin_state.track = [-1]
-        plugin_state.output_folder = str(tmp_path)
-        plugin_state.leftover_file = "updated.csv"
-        plugin_state.session.graph = generate_graph(
-            plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False
-        )
-        _interaction.clicked_index = 0
-
-        layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
-        _interaction.delete_det_by_key(layer)
-
-        lines = (tmp_path / "updated.csv").read_text().splitlines()
-        assert lines[0] == "tframe,y,x,displ_y,displ_x"
-        assert lines[1] == "0,30,40,0,0"  # the deleted detection is excluded
-    finally:
-        _interaction.clicked_index = original_clicked_index
+    lines = (tmp_path / "updated.csv").read_text().splitlines()
+    assert lines[0] == "tframe,y,x,displ_y,displ_x"
+    assert lines[1] == "0,30,40,0,0"  # the deleted detection is excluded
 
 
 def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
@@ -397,9 +380,7 @@ def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
     monkeypatch.setattr(plugin_state, "leftover_file", "updated.csv")
     monkeypatch.setattr(plugin_state.session, "graph", generate_graph(
         plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False))
-    monkeypatch.setattr(_interaction, "clicked_index", 0)
-
-    _interaction.delete_det_by_key(_FakeLayer(np.array([[12.0, 22.0], [30.0, 40.0]])))
+    _interaction.delete_det_by_key(stand_in_widget(), _FakeLayer(np.array([[12.0, 22.0], [30.0, 40.0]])), 0)
 
     assert plugin_state.current_frame == 0
     assert _navigation.image_slider.image_index.value == 0
@@ -407,29 +388,22 @@ def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
 
 def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
     """Same bug as the 'D' key path, via right-click deletion instead."""
-    original_clicked_index = getattr(_interaction, "clicked_index", None)
+    plugin_state.current_frame = 0
+    plugin_state.session.detections = [[Detection(10, 20), Detection(30, 40)]]
+    plugin_state.session.has_prior_tracks = False
+    plugin_state.output_folder = str(tmp_path)
+    plugin_state.leftover_file = "updated.csv"
+    plugin_state.session.graph = generate_graph(
+        plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False
+    )
+    layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
+    event = SimpleNamespace(handled=False)
+    _interaction.delete_det_by_mouse(stand_in_widget(), layer, 1, event)
 
-    try:
-        plugin_state.current_frame = 0
-        plugin_state.session.detections = [[Detection(10, 20), Detection(30, 40)]]
-        plugin_state.session.has_prior_tracks = False
-        plugin_state.output_folder = str(tmp_path)
-        plugin_state.leftover_file = "updated.csv"
-        plugin_state.session.graph = generate_graph(
-            plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False
-        )
-        _interaction.clicked_index = 1
-
-        layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
-        event = SimpleNamespace(handled=False)
-        _interaction.delete_det_by_mouse(layer, event)
-
-        lines = (tmp_path / "updated.csv").read_text().splitlines()
-        assert lines[0] == "tframe,y,x,displ_y,displ_x"
-        assert lines[1] == "0,10,20,0,0"  # the deleted detection (index 1) is excluded
-        assert event.handled is True
-    finally:
-        _interaction.clicked_index = original_clicked_index
+    lines = (tmp_path / "updated.csv").read_text().splitlines()
+    assert lines[0] == "tframe,y,x,displ_y,displ_x"
+    assert lines[1] == "0,10,20,0,0"  # the deleted detection (index 1) is excluded
+    assert event.handled is True
 
 
 def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
@@ -786,8 +760,8 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     )
 
     plugin_state.session.accept_track(plugin_state.track)
-    _interaction.save_accepted_track()
-    _interaction.save_leftover_file()
+    _interaction.save_accepted_track(stand_in_widget())
+    _interaction.save_leftover_file(stand_in_widget())
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
@@ -817,7 +791,7 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
         generate_graph(plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False),
     )
     monkeypatch.setattr(plugin_state, "images", [np.zeros((50, 50)), np.zeros((50, 50))])
-    monkeypatch.setattr(_interaction, "new_point_added", False)
+    monkeypatch.setattr(plugin_state, "new_point_added", False)
 
     # stand-ins for the napari points layer and the shift-click
     layer = SimpleNamespace(
@@ -829,7 +803,7 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
     )
     event = SimpleNamespace(button=1, modifiers=["Shift"], position=(30, 40))
 
-    _interaction.add_detection(layer, event)
+    _interaction.add_detection(stand_in_widget(), layer, event)
 
     added = plugin_state.session.detections[0][1]
     assert added.extra == (-1,)
@@ -979,7 +953,7 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
     )
 
     plugin_state.session.accept_track(plugin_state.track)
-    _interaction.save_accepted_track()
+    _interaction.save_accepted_track(stand_in_widget())
 
     assert (tmp_path / "combined.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
@@ -1062,12 +1036,12 @@ def test_click_changes_the_edited_track_not_the_proposal(monkeypatch):
     clicking a detection changes that copy (which W, Shift-Z, X and accept
     are given), while the session's proposal stays as the session made it."""
     monkeypatch.setattr(plugin_state.session, "proposal", [0, 0])  # the proposal
-    _interaction.use_proposed_track()
+    _interaction.use_proposed_track(stand_in_widget())
     monkeypatch.setattr(plugin_state, "current_frame", 1)
-    monkeypatch.setattr(_interaction, "new_point_added", False)
+    monkeypatch.setattr(plugin_state, "new_point_added", False)
     layer = SimpleNamespace(get_value=lambda position, world: 1)  # the click hits detection 1
 
-    _interaction.on_click(layer, SimpleNamespace(button=1, position=(5, 5)))
+    _interaction.on_click(stand_in_widget(), layer, SimpleNamespace(button=1, position=(5, 5)))
 
     assert plugin_state.track == [0, 1]
     assert plugin_state.session.proposal == [0, 0]
@@ -1101,12 +1075,12 @@ def test_accept_and_delete_segment_write_the_leftover_file(tmp_path, monkeypatch
     leftover = tmp_path / "leftover.csv"
 
     monkeypatch.setattr(plugin_state, "track", [0, 0])
-    _interaction.acceptTrack()  # Shift-Q
+    _interaction.acceptTrack(stand_in_widget())  # Shift-Q
     assert leftover.read_text().splitlines() == ["tframe,y,x,displ_y,displ_x", "0,50,50,0,0", "1,52,52,0,0"]
 
     monkeypatch.setattr(plugin_state, "track", [1, 1])
     monkeypatch.setattr(plugin_state, "current_frame", 1)
-    _interaction.deleteSegment()  # Shift-Z
+    _interaction.deleteSegment(stand_in_widget())  # Shift-Z
     assert leftover.read_text().splitlines() == ["tframe,y,x,displ_y,displ_x"]
 
 
@@ -1126,7 +1100,7 @@ def test_accept_writes_the_session_and_combined_files(tmp_path, monkeypatch):
     monkeypatch.setattr(plugin_state, "max_prior_track_id", 3)  # a track file with tracks 1-3 was added
 
     monkeypatch.setattr(plugin_state, "track", [0, 0])
-    _interaction.acceptTrack()  # Shift-Q
+    _interaction.acceptTrack(stand_in_widget())  # Shift-Q
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no", "0,10,10,0,0,1", "1,12,12,0,0,1"]
