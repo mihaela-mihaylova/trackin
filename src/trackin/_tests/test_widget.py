@@ -8,6 +8,7 @@ from skimage.io import imsave
 
 import trackin._layers as _layers
 import trackin._loading as _loading
+import trackin._navigation as _navigation
 import trackin.core.io as core_io
 import trackin._widget as widget
 from trackin.core.detection import Detection
@@ -371,7 +372,7 @@ def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path, monkeypatch):
     widget.delete_det_by_key(_FakeLayer(np.array([[12.0, 22.0], [30.0, 40.0]])))
 
     assert plugin_state.current_frame == 0
-    assert widget.image_slider.image_index.value == 0
+    assert _navigation.image_slider.image_index.value == 0
 
 
 def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):

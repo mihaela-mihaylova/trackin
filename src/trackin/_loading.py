@@ -18,6 +18,7 @@ from .core.io import (
     read_detections_csv, read_track_file, tracks_table,
 )
 from ._layers import update_image
+from ._navigation import image_slider, update_slider_max
 from .core.session import Session
 from .plugin_state import plugin_state
 
@@ -104,7 +105,7 @@ def choose_folder():
             plugin_state.min_zoom = fit_zoom * 0.5
             plugin_state.max_zoom = fit_zoom * 30
             check_and_update_image()
-            _widget.update_slider_max()
+            update_slider_max()
 
 choose_folder.call_button.native.setToolTip(
     "Select a folder of image frames.\n"
@@ -166,7 +167,7 @@ def load_csv():
         # Start inspection from the beginning, regardless of the frame
         # the viewer happened to be on before these detections were loaded
         plugin_state.current_frame = 0
-        _widget.image_slider.image_index.value = plugin_state.current_frame
+        image_slider.image_index.value = plugin_state.current_frame
 
         check_and_update_image()
 
