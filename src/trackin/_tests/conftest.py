@@ -1,6 +1,7 @@
 import pytest
 
-from trackin.plugin_state import PluginState, plugin_state
+from trackin.plugin_state import PluginState
+from trackin._tests.stand_in_widget import plugin_state
 
 
 @pytest.fixture(autouse=True)

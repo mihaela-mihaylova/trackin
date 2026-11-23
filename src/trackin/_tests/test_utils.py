@@ -3,7 +3,7 @@ import pytest
 from trackin.core.detection import Detection
 from trackin._interaction import save_accepted_track
 from trackin._tests.stand_in_widget import stand_in_widget
-from trackin.plugin_state import plugin_state
+from trackin._tests.stand_in_widget import plugin_state
 from trackin.core.tracking import generate_graph
 
 def accept_and_save(track):

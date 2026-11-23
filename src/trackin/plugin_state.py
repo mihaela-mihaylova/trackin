@@ -1,12 +1,11 @@
-"""Everything the plugin keeps between clicks: the tracking session it
-shows, what the screen shows, and the files the plugin writes for it."""
+"""Everything one Trackin widget keeps between clicks: the tracking
+session it shows, what the screen shows, and the files it writes for it."""
 
 from .core.session import Session
 
 
 class PluginState:
     def __init__(self):
-        self.viewer = None          # the napari viewer the panel is in
         self.images = []            # the loaded images (with a white border), in frame order
         self.image_files = []       # their file names, in the same order
         self.images_loaded = False  # a folder of images has been loaded
@@ -39,5 +38,3 @@ class PluginState:
         # the highest track number in the loaded track file; None until one is added
         self.max_prior_track_id = None
 
-
-plugin_state = PluginState()

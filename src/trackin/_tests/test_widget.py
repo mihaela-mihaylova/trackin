@@ -16,7 +16,9 @@ from trackin.core.detection import Detection
 from trackin.core.session import Session
 from trackin._loading import add_white_border
 from trackin.core.io import check_and_add_displ_cols, generate_upd_track_filename, write_leftover_file
-from trackin.plugin_state import plugin_state
+from trackin._tests.stand_in_widget import plugin_state
+from trackin.plugin_state import PluginState
+from trackin._viewer_setup import initialize_viewer
 from trackin.core.tracking import generate_graph
 from trackin._tests.stand_in_widget import stand_in_widget
 
@@ -230,8 +232,7 @@ def test_refresh_stats_shows_the_counts_only_when_there_is_a_graph():
 
 
 def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
-    plugin_state.viewer = _FakeViewer()
-    w = stand_in_widget()
+    w = stand_in_widget(_FakeViewer())
     # the widget's counts are refreshed by its refresh_stats
     refreshed = []
     w.refresh_stats = lambda: refreshed.append(True)
@@ -374,6 +375,38 @@ def test_each_widget_has_its_own_navigator():
         _navigation.stop_timer(w1.navigator.right_timer)
 
 
+def _two_widgets_on_one_viewer():
+    """Two stand-in widgets, each with its own state, set up one after the
+    other on the same napari viewer (without a window), as when Trackin is
+    opened a second time."""
+    viewer = ViewerModel()
+    w1, w2 = stand_in_widget(viewer), stand_in_widget(viewer)
+    w1.state, w2.state = PluginState(), PluginState()
+    initialize_viewer(w1)
+    initialize_viewer(w2)  # used to fail: keybinding Right already used
+    return viewer, w1, w2
+
+
+def test_opening_a_second_widget_on_the_same_viewer_works():
+    """Setting up a second widget on the same viewer gives it the keys and
+    replaces the first widget's zoom handler instead of adding another."""
+    viewer, w1, w2 = _two_widgets_on_one_viewer()
+    right = next(f for k, f in viewer.keymap.items() if str(k) == "Right")
+    assert right == w2.navigator.handle_right
+    wheel_handlers = [f for f in viewer.mouse_wheel_callbacks if f.__name__ == "on_mouse_wheel_zoom"]
+    assert len(wheel_handlers) == 1
+
+
+def test_zoom_is_kept_within_the_newest_widgets_limits():
+    """The zoom limits come from the state of the widget set up on the
+    viewer, not from another widget's state."""
+    viewer, w1, w2 = _two_widgets_on_one_viewer()
+    w1.state.min_zoom, w1.state.max_zoom = 0.01, 100
+    w2.state.min_zoom, w2.state.max_zoom = 1, 2
+    viewer.camera.zoom = 10
+    assert viewer.camera.zoom == 2
+
+
 def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
     """Same bug as the 'D' key path, via right-click deletion instead."""
     plugin_state.current_frame = 0
@@ -447,7 +480,6 @@ def test_update_image_draws_detections_of_file_without_track_no(monkeypatch):
     A Detection always has prior_track as its 5th value, which made
     drawing fail for such files ("4 columns passed, passed data had 5")."""
     viewer = ViewerModel()
-    monkeypatch.setattr(plugin_state, "viewer", viewer)
     monkeypatch.setattr(plugin_state, "images", [np.zeros((20, 20))])
     monkeypatch.setattr(plugin_state, "image_files", ["0.png"])
     monkeypatch.setattr(plugin_state, "csv_loaded", True)
@@ -456,7 +488,7 @@ def test_update_image_draws_detections_of_file_without_track_no(monkeypatch):
     monkeypatch.setattr(plugin_state, "track", [0])
     monkeypatch.setattr(plugin_state, "current_frame", 0)
 
-    _layers.update_image(stand_in_widget())
+    _layers.update_image(stand_in_widget(viewer))
 
     assert len(viewer.layers["detections"].data) == 2
 
@@ -466,7 +498,6 @@ def test_update_image_hides_deleted_detections(monkeypatch):
     must not be seen: it is drawn far off-screen, at the same place in the
     layer, so the index of a clicked point still matches its detection."""
     viewer = ViewerModel()
-    monkeypatch.setattr(plugin_state, "viewer", viewer)
     monkeypatch.setattr(plugin_state, "images", [np.zeros((20, 20))])
     monkeypatch.setattr(plugin_state, "image_files", ["0.png"])
     monkeypatch.setattr(plugin_state, "csv_loaded", True)
@@ -475,7 +506,7 @@ def test_update_image_hides_deleted_detections(monkeypatch):
     monkeypatch.setattr(plugin_state, "track", [0])
     monkeypatch.setattr(plugin_state, "current_frame", 0)
 
-    _layers.update_image(stand_in_widget())
+    _layers.update_image(stand_in_widget(viewer))
 
     points = viewer.layers["detections"].data.tolist()
     assert points == [[10, 10], [-1000000, -1000000]]
@@ -491,7 +522,6 @@ def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     layers but draws nothing, so the test also runs on machines without
     graphics support."""
     viewer = ViewerModel()
-    monkeypatch.setattr(plugin_state, "viewer", viewer)
     monkeypatch.setattr(plugin_state, "images", [np.zeros((20, 20)), np.zeros((20, 20))])
     monkeypatch.setattr(plugin_state, "image_files", ["0.png", "1.png"])
     monkeypatch.setattr(plugin_state, "csv_loaded", True)
@@ -501,12 +531,12 @@ def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     monkeypatch.setattr(plugin_state, "track", [0, -1])
 
     monkeypatch.setattr(plugin_state, "current_frame", 0)
-    _layers.update_image(stand_in_widget())
+    _layers.update_image(stand_in_widget(viewer))
     assert len(viewer.layers["detections"].data) == 1
     assert len(viewer.layers["track_point"].data) == 1
 
     monkeypatch.setattr(plugin_state, "current_frame", 1)
-    _layers.update_image(stand_in_widget())
+    _layers.update_image(stand_in_widget(viewer))
     assert len(viewer.layers["detections"].data) == 0
     assert len(viewer.layers["track_point"].data) == 0
 
@@ -517,7 +547,6 @@ def test_track_lines_are_drawn_again_after_being_emptied(monkeypatch):
     put into it for polygons, which two points don't draw, so the next
     track's lines were invisible. They must be lines again."""
     viewer = ViewerModel()
-    monkeypatch.setattr(plugin_state, "viewer", viewer)
     monkeypatch.setattr(plugin_state, "images", [np.zeros((50, 50))] * 3)
     monkeypatch.setattr(plugin_state, "image_files", ["0.png", "1.png", "2.png"])
     monkeypatch.setattr(plugin_state, "csv_loaded", True)
@@ -526,12 +555,12 @@ def test_track_lines_are_drawn_again_after_being_emptied(monkeypatch):
     monkeypatch.setattr(plugin_state, "current_frame", 0)
 
     monkeypatch.setattr(plugin_state, "track", [0, 0, 0])   # a track over 3 frames: 2 lines
-    _layers.update_image(stand_in_widget())
+    _layers.update_image(stand_in_widget(viewer))
     monkeypatch.setattr(plugin_state, "track", [0, -1, -1])  # a single point: no lines, layer emptied
-    _layers.update_image(stand_in_widget())
+    _layers.update_image(stand_in_widget(viewer))
     assert len(viewer.layers["track_lines"].data) == 0
     monkeypatch.setattr(plugin_state, "track", [0, 0, 0])   # a track over 3 frames again
-    _layers.update_image(stand_in_widget())
+    _layers.update_image(stand_in_widget(viewer))
 
     assert viewer.layers["track_lines"].shape_type == ["line", "line"]
 

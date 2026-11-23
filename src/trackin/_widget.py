@@ -5,7 +5,7 @@ from qtpy.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton
 from qtpy.QtCore import Qt
 import napari
 import numpy as np
-from .plugin_state import plugin_state
+from .plugin_state import PluginState
 from . import _loading
 from ._help_dialog import show_help
 from ._session_files import ElidedPathLabel, SessionFilesPanel
@@ -26,7 +26,7 @@ class TrackinWidget(QWidget):
     def __init__(self, napari_viewer):
         super().__init__()
         self.viewer = napari_viewer
-        self.state = plugin_state
+        self.state = PluginState()
         self.navigator = Navigator(self)
         initialize_viewer(self)
 
