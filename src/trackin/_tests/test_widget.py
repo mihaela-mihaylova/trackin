@@ -16,7 +16,6 @@ from trackin.core.detection import Detection
 from trackin.core.session import Session
 from trackin._loading import add_white_border
 from trackin.core.io import check_and_add_displ_cols, generate_upd_track_filename, write_leftover_file
-from trackin._tests.stand_in_widget import plugin_state
 from trackin.plugin_state import PluginState
 from trackin._viewer_setup import initialize_viewer
 from trackin.core.tracking import generate_graph
@@ -249,20 +248,20 @@ class _FakeViewer:
         self.layers = {}
 
 
-def test_refresh_stats_shows_the_counts_only_when_there_is_a_graph():
+def test_refresh_stats_shows_the_counts_only_when_there_is_a_graph(qapp):
     """The widget's Detections and Connections counts are hidden while
     there is no graph, and show the session's numbers once there is one."""
     parent = widget.QWidget()  # never shown, so the labels open no window
-    stand_in = SimpleNamespace(state=plugin_state,
+    stand_in = SimpleNamespace(state=PluginState(),
                                dets_label=widget.QLabel(parent), conns_label=widget.QLabel(parent))
 
     widget.TrackinWidget.refresh_stats(stand_in)
     assert stand_in.dets_label.isHidden() and stand_in.conns_label.isHidden()
 
-    plugin_state.session.detections = [[Detection(10, 10)], [Detection(12, 12)]]
-    plugin_state.session.graph = generate_graph(
-        plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False)
-    counts = plugin_state.session.stats()
+    stand_in.state.session.detections = [[Detection(10, 10)], [Detection(12, 12)]]
+    stand_in.state.session.graph = generate_graph(
+        stand_in.state.session.detections, max_score=1600, score_func="squared", tracked=False)
+    counts = stand_in.state.session.stats()
 
     widget.TrackinWidget.refresh_stats(stand_in)
     assert not stand_in.dets_label.isHidden() and not stand_in.conns_label.isHidden()
@@ -282,35 +281,35 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
 
     # Seed state as if a full session (images, detections, and a loaded
     # track file) had already happened for the *previous* dataset
-    plugin_state.session.detections = [[(1, 2, 0, 0)]]
-    plugin_state.track = [0]
-    plugin_state.session.has_prior_tracks = True
-    plugin_state.max_prior_track_id = 7
-    plugin_state.session.graph = object()  # value doesn't matter, only that it's reset to None
-    plugin_state.session.accepted = [[0], [0], [0]]  # three tracks accepted before
-    plugin_state.session_file = "track_session_old_20250101_000000.csv"
-    plugin_state.leftover_file = "upd_old_20250101_000000.csv"
-    plugin_state.combined_file = "with_new_tracks_added_old_20250101_000000.csv"
-    plugin_state.combined_extra_columns = ["label"]
-    plugin_state.output_folder = "/old/dataset"
-    plugin_state.n_detections_shown = 42
-    plugin_state.n_connections_shown = 99
+    w.state.session.detections = [[(1, 2, 0, 0)]]
+    w.state.track = [0]
+    w.state.session.has_prior_tracks = True
+    w.state.max_prior_track_id = 7
+    w.state.session.graph = object()  # value doesn't matter, only that it's reset to None
+    w.state.session.accepted = [[0], [0], [0]]  # three tracks accepted before
+    w.state.session_file = "track_session_old_20250101_000000.csv"
+    w.state.leftover_file = "upd_old_20250101_000000.csv"
+    w.state.combined_file = "with_new_tracks_added_old_20250101_000000.csv"
+    w.state.combined_extra_columns = ["label"]
+    w.state.output_folder = "/old/dataset"
+    w.state.n_detections_shown = 42
+    w.state.n_connections_shown = 99
 
     w.clear_detections_and_tracks()
 
-    assert plugin_state.session.detections == []
-    assert plugin_state.track == []
-    assert plugin_state.session.has_prior_tracks is False
-    assert plugin_state.max_prior_track_id is None
-    assert plugin_state.session.graph is None
-    assert plugin_state.session.accepted == []
-    assert plugin_state.session_file == ''
-    assert plugin_state.leftover_file == ''
-    assert plugin_state.combined_file == ''
-    assert plugin_state.combined_extra_columns == []
-    assert plugin_state.output_folder == ''
-    assert plugin_state.n_detections_shown is None
-    assert plugin_state.n_connections_shown is None
+    assert w.state.session.detections == []
+    assert w.state.track == []
+    assert w.state.session.has_prior_tracks is False
+    assert w.state.max_prior_track_id is None
+    assert w.state.session.graph is None
+    assert w.state.session.accepted == []
+    assert w.state.session_file == ''
+    assert w.state.leftover_file == ''
+    assert w.state.combined_file == ''
+    assert w.state.combined_extra_columns == []
+    assert w.state.output_folder == ''
+    assert w.state.n_detections_shown is None
+    assert w.state.n_connections_shown is None
 
     assert w.track_file_label.full_path == ""
 
@@ -329,15 +328,12 @@ def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
 
 def test_delete_detection_d_key_no_op_when_track_is_empty_list():
     """Right after images are reloaded (before a new CSV is loaded),
-    plugin_state.track is [] -- the 'D' key path indexed into it with
-    curr_track[plugin_state.current_frame] unconditionally, an IndexError
+    the track is [] -- the 'D' key path indexed into it with
+    curr_track[current_frame] unconditionally, an IndexError
     crash on an empty list."""
-    original_track = plugin_state.track
-    try:
-        plugin_state.track = []
-        _interaction.delete_detection(stand_in_widget(), None, use_key=True)  # must not raise
-    finally:
-        plugin_state.track = original_track
+    w = stand_in_widget()
+    w.state.track = []
+    _interaction.delete_detection(w, None, use_key=True)  # must not raise
 
 
 class _FakeLayer:
@@ -353,7 +349,7 @@ class _FakeLayer:
 
 def test_delete_det_by_key_writes_updated_detections_file(tmp_path):
     """Deleting a detection via the 'D' key marked it as removed in
-    plugin_state.session.detections but never persisted that to the leftover file --
+    the session's detections but never persisted that to the leftover file --
     unlike adding a detection, which already did via the same function."""
     w = load_dataset(tmp_path, "tframe,y,x\n0,10,20\n0,30,40\n", n_frames=1)
     w.state.track = [-1]
@@ -463,7 +459,7 @@ def test_update_file_paths_display_auto_expands_session_files_panel(tmp_path, lo
     assert panel.combined_row.isHidden()  # no track file added
 
 
-def test_session_files_panel_shows_and_hides_its_rows():
+def test_session_files_panel_shows_and_hides_its_rows(qapp):
     """The Session Files panel shows the leftover and session files' rows,
     the combined file's row only when there is one, and hides everything
     again when there are no output files."""
@@ -739,30 +735,29 @@ def test_write_leftover_file_writes_extra_columns(tmp_path):
     ]
 
 
-def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
+def test_accept_track_writes_extra_columns(tmp_path):
     """Accepting a track writes its detections' extra values into the
     session file (after track_no), and the plugin then writes the remaining
     detections' extra values into the leftover file. A value containing a
     comma is put in quotes."""
-    monkeypatch.setattr(plugin_state.session, "has_prior_tracks", False)
-    monkeypatch.setattr(plugin_state.session, "detections", [
+    w = stand_in_widget()
+    w.state.session.has_prior_tracks = False
+    w.state.session.detections = [
         [Detection(10, 10, extra=(7, "cell_A")), Detection(50, 50, extra=(8, "x, y"))],
         [Detection(12, 12, extra=(9, float("nan")))],
-    ])
-    monkeypatch.setattr(plugin_state.session, "extra_columns", ["label", "note"])
-    monkeypatch.setattr(plugin_state, "track", [0, 0])  # first detection of frame 0, then of frame 1
-    monkeypatch.setattr(plugin_state, "max_prior_track_id", None)
-    monkeypatch.setattr(plugin_state, "output_folder", str(tmp_path))
-    monkeypatch.setattr(plugin_state, "session_file", "session.csv")
-    monkeypatch.setattr(plugin_state, "leftover_file", "leftover.csv")
-    monkeypatch.setattr(
-        plugin_state.session, "graph",
-        generate_graph(plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False),
-    )
+    ]
+    w.state.session.extra_columns = ["label", "note"]
+    w.state.track = [0, 0]  # first detection of frame 0, then of frame 1
+    w.state.max_prior_track_id = None
+    w.state.output_folder = str(tmp_path)
+    w.state.session_file = "session.csv"
+    w.state.leftover_file = "leftover.csv"
+    w.state.session.graph = generate_graph(
+        w.state.session.detections, max_score=1600, score_func="squared", tracked=False)
 
-    plugin_state.session.accept_track(plugin_state.track)
-    _interaction.save_accepted_track(stand_in_widget())
-    _interaction.save_leftover_file(stand_in_widget())
+    w.state.session.accept_track(w.state.track)
+    _interaction.save_accepted_track(w)
+    _interaction.save_leftover_file(w)
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
@@ -775,24 +770,22 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     ]
 
 
-def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
+def test_add_detection_gets_no_value_in_extra_columns(tmp_path):
     """A detection added by shift-clicking didn't come from the detections
     file, so it gets -1 (NO_VALUE) in every extra column, in memory and in
     the leftover file."""
-    monkeypatch.setattr(plugin_state.session, "has_prior_tracks", False)
-    monkeypatch.setattr(plugin_state.session, "detections",
-                        [[Detection(10, 10, extra=(7,))], [Detection(20, 20, extra=(8,))]])
-    monkeypatch.setattr(plugin_state.session, "extra_columns", ["label"])
-    monkeypatch.setattr(plugin_state, "track", [0, 0])
-    monkeypatch.setattr(plugin_state, "current_frame", 0)
-    monkeypatch.setattr(plugin_state, "output_folder", str(tmp_path))
-    monkeypatch.setattr(plugin_state, "leftover_file", "leftover.csv")
-    monkeypatch.setattr(
-        plugin_state.session, "graph",
-        generate_graph(plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False),
-    )
-    monkeypatch.setattr(plugin_state, "images", [np.zeros((50, 50)), np.zeros((50, 50))])
-    monkeypatch.setattr(plugin_state, "new_point_added", False)
+    w = stand_in_widget()
+    w.state.session.has_prior_tracks = False
+    w.state.session.detections = [[Detection(10, 10, extra=(7,))], [Detection(20, 20, extra=(8,))]]
+    w.state.session.extra_columns = ["label"]
+    w.state.track = [0, 0]
+    w.state.current_frame = 0
+    w.state.output_folder = str(tmp_path)
+    w.state.leftover_file = "leftover.csv"
+    w.state.session.graph = generate_graph(
+        w.state.session.detections, max_score=1600, score_func="squared", tracked=False)
+    w.state.images = [np.zeros((50, 50)), np.zeros((50, 50))]
+    w.state.new_point_added = False
 
     # stand-ins for the napari points layer and the shift-click
     layer = SimpleNamespace(
@@ -804,9 +797,9 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
     )
     event = SimpleNamespace(button=1, modifiers=["Shift"], position=(30, 40))
 
-    _interaction.add_detection(stand_in_widget(), layer, event)
+    _interaction.add_detection(w, layer, event)
 
-    added = plugin_state.session.detections[0][1]
+    added = w.state.session.detections[0][1]
     assert added.extra == (-1,)
     assert added.added is True
     assert (tmp_path / "leftover.csv").read_text().splitlines() == [
@@ -908,7 +901,7 @@ def test_load_track_file_refuses_file_not_starting_with_standard_columns(tmp_pat
     assert w.state.max_prior_track_id == 3
 
 
-def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeypatch):
+def test_accept_track_writes_combined_file_in_its_column_order(tmp_path):
     """After Add Track File, an accepted track is appended to the combined
     file in that file's column order. Here the combined file has a column
     ("quality") that only the loaded track file had, so the new rows get -1
@@ -917,24 +910,22 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note\n"
         "0,5,5,0,0,3,4,good,-1\n"
     )
-    monkeypatch.setattr(plugin_state.session, "has_prior_tracks", False)
-    monkeypatch.setattr(plugin_state.session, "detections",
-                        [[Detection(10, 10, extra=(7, "cell_A"))], [Detection(12, 12, extra=(8, "cell_A"))]])
-    monkeypatch.setattr(plugin_state.session, "extra_columns", ["label", "note"])
-    monkeypatch.setattr(plugin_state, "combined_extra_columns", ["label", "quality", "note"])
-    monkeypatch.setattr(plugin_state, "track", [0, 0])
-    monkeypatch.setattr(plugin_state, "max_prior_track_id", 3)
-    monkeypatch.setattr(plugin_state, "output_folder", str(tmp_path))
-    monkeypatch.setattr(plugin_state, "session_file", "session.csv")
-    monkeypatch.setattr(plugin_state, "leftover_file", "leftover.csv")
-    monkeypatch.setattr(plugin_state, "combined_file", "combined.csv")
-    monkeypatch.setattr(
-        plugin_state.session, "graph",
-        generate_graph(plugin_state.session.detections, max_score=1600, score_func="squared", tracked=False),
-    )
+    w = stand_in_widget()
+    w.state.session.has_prior_tracks = False
+    w.state.session.detections = [[Detection(10, 10, extra=(7, "cell_A"))], [Detection(12, 12, extra=(8, "cell_A"))]]
+    w.state.session.extra_columns = ["label", "note"]
+    w.state.combined_extra_columns = ["label", "quality", "note"]
+    w.state.track = [0, 0]
+    w.state.max_prior_track_id = 3
+    w.state.output_folder = str(tmp_path)
+    w.state.session_file = "session.csv"
+    w.state.leftover_file = "leftover.csv"
+    w.state.combined_file = "combined.csv"
+    w.state.session.graph = generate_graph(
+        w.state.session.detections, max_score=1600, score_func="squared", tracked=False)
 
-    plugin_state.session.accept_track(plugin_state.track)
-    _interaction.save_accepted_track(stand_in_widget())
+    w.state.session.accept_track(w.state.track)
+    _interaction.save_accepted_track(w)
 
     assert (tmp_path / "combined.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
@@ -1013,20 +1004,21 @@ def test_read_detections_csv_refuses_file_separated_by_semicolons(tmp_path):
     assert "Its columns are: tframe;y;x." in str(error.value)
 
 
-def test_click_changes_the_edited_track_not_the_proposal(monkeypatch):
+def test_click_changes_the_edited_track_not_the_proposal():
     """The track being edited is a copy of the session's proposal: left-
     clicking a detection changes that copy (which W, Shift-Z, X and accept
     are given), while the session's proposal stays as the session made it."""
-    monkeypatch.setattr(plugin_state.session, "proposal", [0, 0])  # the proposal
-    _interaction.use_proposed_track(stand_in_widget())
-    monkeypatch.setattr(plugin_state, "current_frame", 1)
-    monkeypatch.setattr(plugin_state, "new_point_added", False)
+    w = stand_in_widget()
+    w.state.session.proposal = [0, 0]  # the proposal
+    _interaction.use_proposed_track(w)
+    w.state.current_frame = 1
+    w.state.new_point_added = False
     layer = SimpleNamespace(get_value=lambda position, world: 1)  # the click hits detection 1
 
-    _interaction.on_click(stand_in_widget(), layer, SimpleNamespace(button=1, position=(5, 5)))
+    _interaction.on_click(w, layer, SimpleNamespace(button=1, position=(5, 5)))
 
-    assert plugin_state.track == [0, 1]
-    assert plugin_state.session.proposal == [0, 0]
+    assert w.state.track == [0, 1]
+    assert w.state.session.proposal == [0, 0]
 
 
 def test_session_from_dataframe_with_track_no_has_prior_tracks():
