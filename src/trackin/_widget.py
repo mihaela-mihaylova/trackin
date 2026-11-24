@@ -60,7 +60,7 @@ class TrackinWidget(QWidget):
             "one per frame, using a supported format: jpg, jpeg, png, tif, tiff, bmp, gif."
         )
         self.load_detections_button = magicgui(
-            partial(_loading.load_csv, self), call_button="Load Detections", auto_call=True)
+            partial(_loading.load_detections, self), call_button="Load Detections", auto_call=True)
         self.load_detections_button.call_button.native.setToolTip(
             "Select a CSV of detections for the loaded image frames.\n"
             "Required columns: tframe, y, x.\n"

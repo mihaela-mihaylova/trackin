@@ -660,7 +660,7 @@ def test_choose_folder_refuses_unreadable_image_and_keeps_open_dataset(tmp_path,
     _assert_open_dataset_untouched()
 
 
-def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_path, monkeypatch):
+def test_load_detections_refuses_detections_without_image_and_keeps_open_dataset(tmp_path, monkeypatch):
     """With 2 images loaded (frames 0 and 1), Load Detections on a CSV with
     a detection in frame 5 must show the "Detections Not Loaded" error with
     that frame and the allowed range, and leave the detections and track
@@ -675,7 +675,7 @@ def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_pa
         _loading.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
     )
 
-    _loading.load_csv(stand_in_widget())
+    _loading.load_detections(stand_in_widget())
 
     assert len(messages) == 1
     title, text = messages[0]
@@ -976,7 +976,7 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
     )
 
 
-def test_load_csv_shows_error_for_unreadable_file_and_keeps_open_dataset(tmp_path, monkeypatch):
+def test_load_detections_shows_error_for_unreadable_file_and_keeps_open_dataset(tmp_path, monkeypatch):
     """Load Detections on a CSV that can't be read -- here line 3 has 4
     values but the header only 3 columns, as happens with a decimal comma
     (2,5 instead of 2.5) -- must show the "Detections Not Loaded" error with
@@ -991,7 +991,7 @@ def test_load_csv_shows_error_for_unreadable_file_and_keeps_open_dataset(tmp_pat
         _loading.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
     )
 
-    _loading.load_csv(stand_in_widget())
+    _loading.load_detections(stand_in_widget())
 
     assert len(messages) == 1
     title, text = messages[0]
@@ -1115,3 +1115,89 @@ def test_accept_writes_the_session_and_combined_files(tmp_path, monkeypatch):
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no", "0,10,10,0,0,1", "1,12,12,0,0,1"]
     assert (tmp_path / "combined.csv").read_text().splitlines() == ["0,10,10,0,0,4", "1,12,12,0,0,4"]
+
+
+def _write_small_dataset(folder, n_frames=2):
+    """Write n_frames blank images (0.png, 1.png, ...) into folder/images and
+    a detections file with one detection per frame into folder; return their
+    paths."""
+    images_folder = folder / "images"
+    images_folder.mkdir()
+    for frame in range(n_frames):
+        imsave(images_folder / f"{frame}.png", np.zeros((40, 40), dtype=np.uint8), check_contrast=False)
+    detections_file = folder / "detections.csv"
+    detections_file.write_text("tframe,y,x\n" + "".join(f"{frame},10,{10 + frame}\n" for frame in range(n_frames)))
+    return images_folder, detections_file
+
+
+def test_open_images_folder_loads_the_images(tmp_path):
+    """open_images_folder loads a folder of images without a dialog: the
+    images in frame order, shown from frame 0, with the slider fitted."""
+    images_folder, _ = _write_small_dataset(tmp_path, n_frames=3)
+    w = stand_in_widget(ViewerModel())
+
+    _loading.open_images_folder(w, str(images_folder))
+
+    assert w.state.images_loaded
+    assert w.state.image_files == ["0.png", "1.png", "2.png"]
+    assert len(w.state.images) == 3
+    assert w.state.current_frame == 0
+    assert w.navigator.image_slider.image_index.max == 2
+
+
+def test_open_detections_starts_a_tracking_session(tmp_path):
+    """open_detections loads a detections file without a dialog: a new
+    session with the file's detections, a proposed track, and the output
+    files named after the file in its folder (the session file created
+    empty)."""
+    images_folder, detections_file = _write_small_dataset(tmp_path, n_frames=2)
+    w = stand_in_widget(ViewerModel())
+    _loading.open_images_folder(w, str(images_folder))
+
+    _loading.open_detections(w, str(detections_file))
+
+    assert w.state.csv_loaded
+    assert [len(frame) for frame in w.state.session.detections] == [1, 1]
+    assert w.state.track == [0, 0]
+    assert w.state.output_folder == str(tmp_path)
+    assert w.state.session_file.startswith("track_session_detections_")
+    assert w.state.leftover_file.startswith("upd_detections_")
+    assert (tmp_path / w.state.session_file).read_text() == ""
+
+
+def test_open_track_file_writes_the_combined_file(tmp_path):
+    """open_track_file adds a track file without a dialog: it writes the
+    combined file next to the detections file, numbers new tracks after
+    the file's highest track number and shows the file's name."""
+    images_folder, detections_file = _write_small_dataset(tmp_path, n_frames=2)
+    w = stand_in_widget(ViewerModel())
+    _loading.open_images_folder(w, str(images_folder))
+    _loading.open_detections(w, str(detections_file))
+    track_file = tmp_path / "earlier_tracks.csv"
+    track_file.write_text("tframe,y,x,displ_y,displ_x,track_no\n0,5,5,0,0,4\n1,6,6,0,0,4\n")
+
+    _loading.open_track_file(w, str(track_file))
+
+    assert w.state.max_prior_track_id == 4
+    assert (tmp_path / w.state.combined_file).exists()
+    assert w.track_file_label.full_path == "Track file loaded: earlier_tracks.csv"
+
+
+def test_cancelled_dialogs_load_nothing(tmp_path, monkeypatch):
+    """Closing a load button's dialog without choosing anything leaves the
+    open dataset as it was."""
+    images_folder, detections_file = _write_small_dataset(tmp_path, n_frames=2)
+    w = stand_in_widget(ViewerModel())
+    _loading.open_images_folder(w, str(images_folder))
+    _loading.open_detections(w, str(detections_file))
+    session, image_files = w.state.session, w.state.image_files
+    monkeypatch.setattr(_loading.QFileDialog, "getExistingDirectory", lambda *args: "")
+    monkeypatch.setattr(_loading.QFileDialog, "getOpenFileName", lambda *args: ("", ""))
+
+    _loading.choose_folder(w)
+    _loading.load_detections(w)
+    _loading.load_track_file(w)
+
+    assert w.state.session is session
+    assert w.state.image_files == image_files
+    assert w.state.combined_file == ""

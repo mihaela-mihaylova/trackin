@@ -71,38 +71,44 @@ def choose_folder(w):
     """Open a dialog to select a folder and load images from it."""
     folder_path = QFileDialog.getExistingDirectory(None, "Select Folder with Images")
     if folder_path:
-        # Check the image names before loading anything, so a folder that
-        # breaks the rule leaves the current session untouched
-        numbering_error = check_image_numbering(list_image_files(folder_path))
-        if numbering_error:
-            QMessageBox.critical(None, "Images Not Loaded", numbering_error)
-            return
-        new_images, new_image_files, unreadable = load_images_from_folder(folder_path)
-        if unreadable:
-            QMessageBox.critical(
-                None, "Images Not Loaded",
-                f"These images could not be opened: {format_list(unreadable)}. "
-                "Check or replace these files.\n\nEvery frame needs an image that "
-                "can be opened, otherwise the images would no longer match the "
-                "frame numbers."
-            )
-            return
-        w.clear_detections_and_tracks()
-        w.state.images, w.state.image_files = new_images, new_image_files
-        w.state.current_frame = 0
-        w.state.images_loaded = True
-        if w.state.images:
-            w.viewer.layers.clear()
-            w.viewer.add_image(w.state.images[w.state.current_frame], name=os.path.basename(w.state.image_files[w.state.current_frame]))
-            # napari fits the view to the image on add; use that as the
-            # baseline for how far this dataset can be zoomed in/out
-            fit_zoom = w.viewer.camera.zoom
-            w.state.min_zoom = fit_zoom * 0.5
-            w.state.max_zoom = fit_zoom * 30
-            check_and_update_image(w)
-            w.navigator.update_slider_max()
+        open_images_folder(w, folder_path)
 
-def load_csv(w):
+
+def open_images_folder(w, folder_path):
+    """Load the images in folder_path: check their names, read them, start
+    afresh without detections and show the first frame."""
+    # Check the image names before loading anything, so a folder that
+    # breaks the rule leaves the current session untouched
+    numbering_error = check_image_numbering(list_image_files(folder_path))
+    if numbering_error:
+        QMessageBox.critical(None, "Images Not Loaded", numbering_error)
+        return
+    new_images, new_image_files, unreadable = load_images_from_folder(folder_path)
+    if unreadable:
+        QMessageBox.critical(
+            None, "Images Not Loaded",
+            f"These images could not be opened: {format_list(unreadable)}. "
+            "Check or replace these files.\n\nEvery frame needs an image that "
+            "can be opened, otherwise the images would no longer match the "
+            "frame numbers."
+        )
+        return
+    w.clear_detections_and_tracks()
+    w.state.images, w.state.image_files = new_images, new_image_files
+    w.state.current_frame = 0
+    w.state.images_loaded = True
+    if w.state.images:
+        w.viewer.layers.clear()
+        w.viewer.add_image(w.state.images[w.state.current_frame], name=os.path.basename(w.state.image_files[w.state.current_frame]))
+        # napari fits the view to the image on add; use that as the
+        # baseline for how far this dataset can be zoomed in/out
+        fit_zoom = w.viewer.camera.zoom
+        w.state.min_zoom = fit_zoom * 0.5
+        w.state.max_zoom = fit_zoom * 30
+        check_and_update_image(w)
+        w.navigator.update_slider_max()
+
+def load_detections(w):
     """Open a dialog to select a CSV file and load its data."""
     if not w.state.images_loaded:
         QMessageBox.information(None, "Load Images First", "Please load the images before loading the CSV file.")
@@ -110,59 +116,65 @@ def load_csv(w):
     
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
-        show_info("Detections are being loaded...")
-        # Check the detections before clearing anything, so a file that
-        # breaks the rule leaves the current session untouched
-        try:
-            new_csv_data = read_detections_csv(csv_path)
-        except (ValueError, OSError) as e:
-            # e.g. a line with more values than the header has columns, or
-            # a value that isn't a number in a tracking column
-            QMessageBox.critical(None, "Detections Not Loaded", f"The detections file could not be read:\n\n{e}")
-            return
-        frames_error = check_detection_frames(new_csv_data, len(w.state.images))
-        if frames_error:
-            QMessageBox.critical(None, "Detections Not Loaded", frames_error)
-            return
-        if w.state.csv_loaded:
-            w.clear_detections_and_tracks()
+        open_detections(w, csv_path)
 
-        csv_data = check_and_add_displ_cols(new_csv_data)
-        w.state.session = Session.from_dataframe(csv_data, n_frames=len(w.state.images))
 
-        csv_filename = csv_path.split('/')[-1].split('.')[0]
-        # generate the current timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # name for file where generated tracks are saved
-        w.state.session_file = f'track_session_{csv_filename}_{timestamp}.csv'
-        # name for file where leftover positions are preserved
-        w.state.leftover_file = f'upd_{csv_filename}_{timestamp}.csv'
-        w.state.output_folder = os.path.dirname(csv_path)
-        # create the empty session file, where accepted tracks are saved
-        with open(os.path.join(w.state.output_folder, w.state.session_file), "w") as f:
-            f.write("")
-        w.state.csv_loaded = True
-        # Build the graph and propose the first track
-        if w.state.session.graph is None:
-            show_info("Building graph...")
-        show_messages(w.state.session.propose())
-        use_proposed_track(w)
+def open_detections(w, csv_path):
+    """Load the detections file at csv_path: check it, start a new tracking
+    session, name the output files and propose the first track."""
+    show_info("Detections are being loaded...")
+    # Check the detections before clearing anything, so a file that
+    # breaks the rule leaves the current session untouched
+    try:
+        new_csv_data = read_detections_csv(csv_path)
+    except (ValueError, OSError) as e:
+        # e.g. a line with more values than the header has columns, or
+        # a value that isn't a number in a tracking column
+        QMessageBox.critical(None, "Detections Not Loaded", f"The detections file could not be read:\n\n{e}")
+        return
+    frames_error = check_detection_frames(new_csv_data, len(w.state.images))
+    if frames_error:
+        QMessageBox.critical(None, "Detections Not Loaded", frames_error)
+        return
+    if w.state.csv_loaded:
+        w.clear_detections_and_tracks()
 
-        w.refresh_stats()
+    csv_data = check_and_add_displ_cols(new_csv_data)
+    w.state.session = Session.from_dataframe(csv_data, n_frames=len(w.state.images))
 
-        # Start inspection from the beginning, regardless of the frame
-        # the viewer happened to be on before these detections were loaded
-        w.state.current_frame = 0
-        w.navigator.image_slider.image_index.value = w.state.current_frame
+    csv_filename = csv_path.split('/')[-1].split('.')[0]
+    # generate the current timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # name for file where generated tracks are saved
+    w.state.session_file = f'track_session_{csv_filename}_{timestamp}.csv'
+    # name for file where leftover positions are preserved
+    w.state.leftover_file = f'upd_{csv_filename}_{timestamp}.csv'
+    w.state.output_folder = os.path.dirname(csv_path)
+    # create the empty session file, where accepted tracks are saved
+    with open(os.path.join(w.state.output_folder, w.state.session_file), "w") as f:
+        f.write("")
+    w.state.csv_loaded = True
+    # Build the graph and propose the first track
+    if w.state.session.graph is None:
+        show_info("Building graph...")
+    show_messages(w.state.session.propose())
+    use_proposed_track(w)
 
-        check_and_update_image(w)
+    w.refresh_stats()
 
-        w.update_file_paths_display()
+    # Start inspection from the beginning, regardless of the frame
+    # the viewer happened to be on before these detections were loaded
+    w.state.current_frame = 0
+    w.navigator.image_slider.image_index.value = w.state.current_frame
 
-        # Move keyboard focus off the slider's editable readout (left focused,
-        # and blinking its text cursor, after the file dialog closes) and back
-        # onto the widget so shortcuts like arrow keys work immediately
-        w.focus()
+    check_and_update_image(w)
+
+    w.update_file_paths_display()
+
+    # Move keyboard focus off the slider's editable readout (left focused,
+    # and blinking its text cursor, after the file dialog closes) and back
+    # onto the widget so shortcuts like arrow keys work immediately
+    w.focus()
 
 # loads a file with already accepted tracks and adds these and any subsequent accepted tracks to a new track file
 def load_track_file(w):
@@ -174,41 +186,47 @@ def load_track_file(w):
 
     csv_path, _ = QFileDialog.getOpenFileName(None, "Select CSV File", "", "CSV Files (*.csv)")
     if csv_path:
-        # generate the current timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        # name for the file with both the loaded and the new tracks; only
-        # used once the track file is accepted, so a refused file doesn't
-        # redirect tracks accepted later into a file that was never written
-        upd_track_file = generate_upd_track_filename(csv_path, timestamp)
+        open_track_file(w, csv_path)
 
-        try:
-            track_df = read_track_file(csv_path)
-            max_track_no = track_df['track_no'].max()
-            session = w.state.session
-            # this session's accepted tracks, numbered after the track file's
-            session_df = tracks_table(session.accepted, session.detections,
-                                      session.extra_columns, first_track_no=max_track_no + 1)
-            combined_df, combined_extra_columns = combine_tracks(track_df, session_df)
-            combined_df.to_csv(os.path.join(w.state.output_folder, upd_track_file), index=False)
-            if session.accepted:
-                show_info("Track File Updated. \n The track file has been successfully updated with the new tracks.")
-            else:
-                show_info("Track File Added. \n The track file has been successfully added. New tracks will be added to the existing tracks.")
 
-            w.state.combined_file = upd_track_file
-            w.state.combined_extra_columns = combined_extra_columns
-            w.state.max_prior_track_id = max_track_no
+def open_track_file(w, csv_path):
+    """Load the track file at csv_path: check it, and write the combined
+    file with its tracks and this session's accepted tracks."""
+    # generate the current timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # name for the file with both the loaded and the new tracks; only
+    # used once the track file is accepted, so a refused file doesn't
+    # redirect tracks accepted later into a file that was never written
+    upd_track_file = generate_upd_track_filename(csv_path, timestamp)
 
-            w.track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
-            # set_path() defaults the tooltip to the same string as the
-            # display text; override it with the actual full path instead
-            w.track_file_label.setToolTip(csv_path)
+    try:
+        track_df = read_track_file(csv_path)
+        max_track_no = track_df['track_no'].max()
+        session = w.state.session
+        # this session's accepted tracks, numbered after the track file's
+        session_df = tracks_table(session.accepted, session.detections,
+                                  session.extra_columns, first_track_no=max_track_no + 1)
+        combined_df, combined_extra_columns = combine_tracks(track_df, session_df)
+        combined_df.to_csv(os.path.join(w.state.output_folder, upd_track_file), index=False)
+        if session.accepted:
+            show_info("Track File Updated. \n The track file has been successfully updated with the new tracks.")
+        else:
+            show_info("Track File Added. \n The track file has been successfully added. New tracks will be added to the existing tracks.")
 
-            w.update_file_paths_display()
+        w.state.combined_file = upd_track_file
+        w.state.combined_extra_columns = combined_extra_columns
+        w.state.max_prior_track_id = max_track_no
 
-        except TrackFileError as e:
-            QMessageBox.critical(None, "Track File Not Loaded", str(e))
-            return
-        except Exception as e:
-            QMessageBox.critical(None, "Error", f"An unexpected error occurred: {e}")
+        w.track_file_label.set_path(f"Track file loaded: {os.path.basename(csv_path)}")
+        # set_path() defaults the tooltip to the same string as the
+        # display text; override it with the actual full path instead
+        w.track_file_label.setToolTip(csv_path)
+
+        w.update_file_paths_display()
+
+    except TrackFileError as e:
+        QMessageBox.critical(None, "Track File Not Loaded", str(e))
+        return
+    except Exception as e:
+        QMessageBox.critical(None, "Error", f"An unexpected error occurred: {e}")
 
