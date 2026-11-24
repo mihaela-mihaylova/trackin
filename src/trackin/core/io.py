@@ -1,8 +1,9 @@
-# Reading and checking the input files: detections files and image
-# folders. Used by the plugin's interface, which shows the messages these
-# checks return.
+# Reading and checking the input files (detections files and image
+# folders), and writing the output files. Used by the plugin's interface,
+# which shows the messages the checks return and decides when to write.
 
 import csv
+import math
 import os
 from pathlib import PurePosixPath
 
@@ -138,11 +139,123 @@ def check_detection_frames(df, n_images):
         "folder that also contains these frames."
     )
 
+def file_stem(path):
+    """The file's name without its folder and extension. Handles both / and
+    \\ path separators, and keeps everything before the last dot (so
+    "my.tracks.v2.csv" becomes "my.tracks.v2", not "my")."""
+    return PurePosixPath(path.replace('\\', '/')).stem
+
 def generate_upd_track_filename(csv_path, timestamp):
     """Build the filename for a track file that continues a previous
     session's track numbering, from the selected CSV's path and a
-    timestamp. Handles both / and \\ path separators, and keeps
-    everything before the last dot (so "my.tracks.v2.csv" becomes
-    "my.tracks.v2", not "my")."""
-    csv_filename = PurePosixPath(csv_path.replace('\\', '/')).stem
-    return f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
+    timestamp."""
+    return f'with_new_tracks_added_{file_stem(csv_path)}_{timestamp}.csv'
+
+# value written in the extra columns for a detection added by hand, which
+# didn't come from the detections file and so has no values of its own there
+NO_VALUE = -1
+
+def csv_value(value):
+    """A value as written in a CSV cell: empty for a missing value, and in
+    quotes if it contains a comma, quote or line break, so it stays one cell."""
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return ""
+    text = str(value)
+    if any(char in text for char in ',"\n'):
+        text = '"' + text.replace('"', '""') + '"'
+    return text
+
+def write_leftover_file(path, detections, extra_columns):
+    """Write the detections that are still available (not deleted, and not
+    used in an accepted track) to the file at `path`: tframe, y, x,
+    displ_y, displ_x and the extra columns. Tracking can be continued later
+    from this file."""
+    with open(path, "w") as f:
+        f.write("tframe,y,x,displ_y,displ_x" + "".join("," + csv_value(c) for c in extra_columns) + "\n")
+        for t, frame in enumerate(detections):
+            for d in frame:
+                if d.active:
+                    f.write(f"{t},{d.y},{d.x},{d.displ_y},{d.displ_x}"
+                            + "".join("," + csv_value(v) for v in d.extra) + "\n")
+
+def append_to_session_file(path, track_no, track, detections, extra_columns):
+    """Append accepted track number `track_no` to the session file at
+    `path`: one row per detection (tframe, y, x, displ_y, displ_x, track_no
+    and the extra columns), after a header row if the file is new or empty."""
+    add_header = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, "a") as f:
+        if add_header:
+            f.write("tframe,y,x,displ_y,displ_x,track_no"
+                    + "".join("," + csv_value(c) for c in extra_columns) + "\n")
+        for t, i in enumerate(track):
+            if i >= 0:
+                d = detections[t][i]
+                f.write(f"{t},{d.y},{d.x},{d.displ_y},{d.displ_x},{track_no}"
+                        + "".join("," + csv_value(v) for v in d.extra) + "\n")
+
+def append_to_combined_file(path, track_id, track, detections, extra_columns, combined_extra_columns):
+    """Append an accepted track to the combined file at `path` (written by
+    Add Track File), numbered `track_id`, with the extra columns in the
+    combined file's order. A column the detections file doesn't have gets
+    NO_VALUE."""
+    with open(path, "a") as f:
+        for t, i in enumerate(track):
+            if i >= 0:
+                d = detections[t][i]
+                values = dict(zip(extra_columns, d.extra))
+                f.write(f"{t},{d.y},{d.x},{d.displ_y},{d.displ_x},{track_id}"
+                        + "".join("," + csv_value(values.get(c, NO_VALUE)) for c in combined_extra_columns) + "\n")
+
+class TrackFileError(ValueError):
+    """A track file that can't be used. The message says what is wrong."""
+
+def read_track_file(path):
+    """Read a track file from an earlier session (Add Track File). It must
+    start with the tracking columns, in order; any further columns are
+    extra columns, read as text exactly as written, so their values are
+    copied unchanged into the combined file. Raises TrackFileError, also
+    for a file that can't be read as a CSV file."""
+    try:
+        header = list(pd.read_csv(path, nrows=0).columns)
+        if header[:len(TRACKING_COLUMNS)] != TRACKING_COLUMNS:
+            raise TrackFileError(
+                "The track file must start with these columns, in this order: "
+                f"{', '.join(TRACKING_COLUMNS)}.\n"
+                f"It starts with: {', '.join(header[:len(TRACKING_COLUMNS)])}.\n\n"
+                "Any further columns (e.g. label, area) are allowed and kept.")
+        extra_columns = header[len(TRACKING_COLUMNS):]
+        df = pd.read_csv(path, dtype={c: str for c in extra_columns}, keep_default_na=False)
+    except (pd.errors.ParserError, pd.errors.EmptyDataError) as e:
+        raise TrackFileError(f"The selected file is not a valid CSV or is malformed: {e}") from e
+    if df.empty:
+        raise TrackFileError("The loaded file is empty or only contains a header.")
+    return df.astype({c: int for c in TRACKING_COLUMNS})
+
+def tracks_table(tracks, detections, extra_columns, first_track_no=1):
+    """The rows of accepted tracks, as in a session file: tframe, y, x,
+    displ_y, displ_x, track_no (numbered from first_track_no) and the extra
+    columns, whose values are given as the text written in the file."""
+    rows = []
+    for track_no, track in enumerate(tracks, start=first_track_no):
+        for t, i in enumerate(track):
+            if i >= 0:
+                d = detections[t][i]
+                extras = ["" if v is None or (isinstance(v, float) and math.isnan(v)) else str(v)
+                          for v in d.extra]
+                rows.append([t, d.y, d.x, d.displ_y, d.displ_x, track_no, *extras])
+    return pd.DataFrame(rows, columns=TRACKING_COLUMNS + list(extra_columns))
+
+def combine_tracks(track_df, session_df):
+    """The combined file of Add Track File: the loaded track file's tracks,
+    then this session's (session_df, already numbered after them). It gets
+    the extra columns of both, each once and the track file's first; rows
+    from a file that doesn't have a column get NO_VALUE there. Returns the
+    table and its extra columns."""
+    track_extra = list(track_df.columns[len(TRACKING_COLUMNS):])
+    session_extra = list(session_df.columns[len(TRACKING_COLUMNS):])
+    combined_extra = list(dict.fromkeys(track_extra + session_extra))
+    columns = TRACKING_COLUMNS + combined_extra
+    parts = [track_df.reindex(columns=columns, fill_value=NO_VALUE)]
+    if not session_df.empty:
+        parts.append(session_df.reindex(columns=columns, fill_value=NO_VALUE))
+    return pd.concat(parts, ignore_index=True), combined_extra

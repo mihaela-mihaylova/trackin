@@ -6,31 +6,60 @@ import pandas as pd
 from napari.components import ViewerModel
 from skimage.io import imsave
 
+import trackin._interaction as _interaction
+import trackin._layers as _layers
+import trackin._loading as _loading
+import trackin._navigation as _navigation
+import trackin.core.io as core_io
 import trackin._widget as widget
-from trackin._widget import (
-    add_white_border,
-    check_and_add_displ_cols,
-    generate_upd_track_filename,
-    write_updated_detections_to_file,
-)
-from trackin.shared_state import shared_state
+from trackin.core.detection import Detection
+from trackin.core.session import Session
+from trackin._loading import add_white_border
+from trackin.core.io import check_and_add_displ_cols, generate_upd_track_filename, write_leftover_file
+from trackin.plugin_state import PluginState
+from trackin._viewer_setup import initialize_viewer
 from trackin.core.tracking import generate_graph
+from trackin._tests.stand_in_widget import stand_in_widget
 
-SHARED_STATE_FIELDS = [
-    "DATA",
-    "track",
-    "track_lines",
-    "NUM_DET_PER_FRAME",
-    "TRACKED",
-    "MAX_TRACK_ID",
-    "G",
-    "N_TRACKS",
-    "SESSION_FILE",
-    "UPDATED_DATA_FILE",
-    "UPD_TRACK_FILE",
-    "NUM_DETS",
-    "NUM_CONN",
-]
+
+# two cells over three frames
+DETECTIONS_CSV = "tframe,y,x\n0,10,10\n0,30,10\n1,10,12\n1,30,12\n2,10,14\n2,30,14\n"
+
+
+def write_dataset(folder, detections_csv, n_frames):
+    """Write n_frames blank images (0.png, 1.png, ...) into folder/images and
+    the detections file (CSV text) into folder; return the images folder and
+    the detections file."""
+    images_folder = folder / "images"
+    images_folder.mkdir()
+    for frame in range(n_frames):
+        imsave(images_folder / f"{frame}.png", np.zeros((40, 40), dtype=np.uint8), check_contrast=False)
+    detections_file = folder / "detections.csv"
+    detections_file.write_text(detections_csv)
+    return images_folder, detections_file
+
+
+def load_dataset(folder, detections_csv, n_frames):
+    """A stand-in widget, with napari's viewer without a window, that has
+    loaded the dataset written into folder through the real
+    open_images_folder and open_detections, as the app does."""
+    images_folder, detections_file = write_dataset(folder, detections_csv, n_frames)
+    w = stand_in_widget(ViewerModel())
+    _loading.open_images_folder(w, str(images_folder))
+    _loading.open_detections(w, str(detections_file))
+    return w
+
+
+@pytest.fixture
+def dataset(tmp_path):
+    """The standard small dataset written into the test's folder."""
+    return write_dataset(tmp_path, DETECTIONS_CSV, n_frames=3)
+
+
+@pytest.fixture
+def loaded_widget(tmp_path):
+    """A stand-in widget with the standard small dataset loaded."""
+    return load_dataset(tmp_path, DETECTIONS_CSV, n_frames=3)
 
 
 def test_check_and_add_displ_cols_adds_missing_columns():
@@ -49,11 +78,8 @@ def test_check_and_add_displ_cols_preserves_existing_columns():
     assert result["displ_y"].tolist() == [7]
 
 
-def test_generate_positions_list_keeps_empty_frames(tmp_path, monkeypatch):
+def test_session_from_dataframe_keeps_empty_frames():
     # 5 images; the CSV has no detections in frame 2 and none after frame 3
-    monkeypatch.setattr(shared_state, "DATA", [])
-    monkeypatch.setattr(shared_state, "TRACKED", False)
-    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
     df = pd.DataFrame(
         {
             "tframe": [0, 1, 1, 3],
@@ -63,57 +89,57 @@ def test_generate_positions_list_keeps_empty_frames(tmp_path, monkeypatch):
             "displ_x": [0, 0, 0, 0],
         }
     )
-    data = widget.generate_positions_list(df, str(tmp_path), n_frames=5)
+    data = Session.from_dataframe(df, n_frames=5).detections
 
     assert len(data) == 5  # one entry per image
-    assert data[0] == [(10, 11, 0, 0)]
-    assert data[1] == [(20, 22, 0, 0), (21, 23, 0, 0)]
+    assert data[0] == [Detection(10, 11)]
+    assert data[1] == [Detection(20, 22), Detection(21, 23)]
     assert data[2] == []  # empty frame stays empty instead of shifting
-    assert data[3] == [(30, 33, 0, 0)]
+    assert data[3] == [Detection(30, 33)]
     assert data[4] == []
 
 
 def test_check_image_numbering_accepts_consecutive_names():
-    assert widget.check_image_numbering(["2.png", "0.png", "1.png"]) is None
+    assert core_io.check_image_numbering(["2.png", "0.png", "1.png"]) is None
 
 
 def test_check_image_numbering_rejects_missing_frame():
     """One missing image: name the frame and say how to fix it."""
-    message = widget.check_image_numbering(["0.png", "1.png", "3.png"])
+    message = core_io.check_image_numbering(["0.png", "1.png", "3.png"])
     assert "There is no image for frame 2." in message
     assert "Add the missing images, or renumber the images" in message
-    assert widget.IMAGE_NAMING_RULE in message
+    assert core_io.IMAGE_NAMING_RULE in message
 
 
 def test_check_image_numbering_rejects_several_missing_frames():
     """Many missing images: give the total and list only the first 10."""
-    message = widget.check_image_numbering(["0.png", "100.png"])
+    message = core_io.check_image_numbering(["0.png", "100.png"])
     assert "There is no image for 99 frames: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, and 89 more." in message
 
 
 def test_check_image_numbering_rejects_not_starting_at_zero():
     """A folder numbered 1, 2, 3, ... is told it must start at 0, rather
     than that frame 0 is missing."""
-    message = widget.check_image_numbering(["1.png", "2.png", "3.png"])
+    message = core_io.check_image_numbering(["1.png", "2.png", "3.png"])
     assert "The images are numbered from 1, but must start at 0." in message
     assert "no image for frame" not in message
 
 
 def test_check_image_numbering_rejects_duplicates():
     """Name the files that share a frame number."""
-    message = widget.check_image_numbering(["0.png", "1.png", "01.png"])
+    message = core_io.check_image_numbering(["0.png", "1.png", "01.png"])
     assert "More than one image has frame number 1: 01.png, 1.png." in message
     assert "Keep one image per frame number." in message
 
 
 def test_check_image_numbering_rejects_several_duplicates():
-    message = widget.check_image_numbering(["0.png", "1.png", "01.png", "2.png", "02.png"])
+    message = core_io.check_image_numbering(["0.png", "1.png", "01.png", "2.png", "02.png"])
     assert "same frame number: 1 (01.png, 1.png), 2 (02.png, 2.png)." in message
 
 
 def test_check_image_numbering_rejects_names_without_number():
     """Name the files and suggest the new name for the first one."""
-    message = widget.check_image_numbering(["0.png", "frame_1.png"])
+    message = core_io.check_image_numbering(["0.png", "frame_1.png"])
     assert "not named with only a frame number: frame_1.png." in message
     assert "e.g. frame_1.png → 1.png." in message
 
@@ -121,20 +147,20 @@ def test_check_image_numbering_rejects_names_without_number():
 def test_check_image_numbering_rejects_empty_folder():
     """An empty folder (or one with only other files) lists the supported
     formats instead of the naming rule."""
-    message = widget.check_image_numbering([])
+    message = core_io.check_image_numbering([])
     assert "No images found in this folder." in message
     assert "png" in message
-    assert widget.IMAGE_NAMING_RULE not in message
+    assert core_io.IMAGE_NAMING_RULE not in message
 
 
 def test_format_list_shortens_long_lists():
-    assert widget.format_list([1, 2, 3]) == "1, 2, 3"
-    assert widget.format_list(range(12)) == "0, 1, 2, 3, 4, 5, 6, 7, 8, 9, and 2 more"
+    assert core_io.format_list([1, 2, 3]) == "1, 2, 3"
+    assert core_io.format_list(range(12)) == "0, 1, 2, 3, 4, 5, 6, 7, 8, 9, and 2 more"
 
 
 def test_check_detection_frames_rejects_frames_after_last_image():
     df = pd.DataFrame({"tframe": [0, 1, 3, 3, 4], "y": [1] * 5, "x": [1] * 5})
-    message = widget.check_detection_frames(df, n_images=3)
+    message = core_io.check_detection_frames(df, n_images=3)
     assert "3 detection(s) are in frame(s) 3, 4" in message
     assert "only images for frames 0 to 2" in message
     assert "every tframe must be between 0 and 2" in message
@@ -142,13 +168,13 @@ def test_check_detection_frames_rejects_frames_after_last_image():
 
 def test_check_detection_frames_rejects_negative_frames():
     df = pd.DataFrame({"tframe": [-1, 0], "y": [1, 1], "x": [1, 1]})
-    message = widget.check_detection_frames(df, n_images=3)
+    message = core_io.check_detection_frames(df, n_images=3)
     assert "1 detection(s) are in frame(s) -1" in message
 
 
 def test_check_detection_frames_accepts_when_all_frames_have_images():
     df = pd.DataFrame({"tframe": [0, 2], "y": [1, 1], "x": [1, 1]})
-    assert widget.check_detection_frames(df, n_images=3) is None
+    assert core_io.check_detection_frames(df, n_images=3) is None
 
 
 def test_add_white_border_grayscale():
@@ -167,26 +193,26 @@ def test_add_white_border_rgb():
     assert (bordered[2:-2, 2:-2, :] == 0).all()
 
 
-def test_write_updated_detections_to_file(tmp_path):
+def test_write_leftover_file(tmp_path):
     data = [
-        [(10, 20, 1, -1), (-1000000, -1000000, 0, 0)],  # frame 0: one real, one deleted
-        [(30, 40, 0, 2)],  # frame 1: one real
+        [Detection(10, 20, 1, -1), Detection(50, 60, active=False)],  # frame 0: one real, one deleted
+        [Detection(30, 40, 0, 2)],  # frame 1: one real
     ]
-    write_updated_detections_to_file(data, "out.csv", str(tmp_path))
+    write_leftover_file(tmp_path / "out.csv", data, [])
 
     lines = (tmp_path / "out.csv").read_text().splitlines()
 
     # Header row
     assert lines[0] == "tframe,y,x,displ_y,displ_x"
-    # Deleted detection (-1000000 sentinel) excluded, only the two real ones written
+    # Deleted (inactive) detection excluded, only the two real ones written
     assert len(lines) == 3
     # Real detections written with correct tframe,y,x,displ_y,displ_x values
     assert lines[1] == "0,10,20,1,-1"
     assert lines[2] == "1,30,40,0,2"
 
 
-def test_write_updated_detections_to_file_empty_data_writes_header_only(tmp_path):
-    write_updated_detections_to_file([], "out.csv", str(tmp_path))
+def test_write_leftover_file_empty_data_writes_header_only(tmp_path):
+    write_leftover_file(tmp_path / "out.csv", [], [])
 
     lines = (tmp_path / "out.csv").read_text().splitlines()
 
@@ -222,121 +248,92 @@ class _FakeViewer:
         self.layers = {}
 
 
-def test_clear_detections_and_tracks_resets_shared_state_and_ui():
-    original_viewer = widget.viewer
-    original_widgets = {
-        name: getattr(widget, name)
-        for name in (
-            "track_file_label",
-            "leftover_row",
-            "leftover_path_field",
-            "session_row",
-            "session_path_field",
-            "upd_track_row",
-            "upd_track_path_field",
-            "dets_label",
-            "conns_label",
-            "session_files_header",
-            "session_files_content",
-        )
-    }
-    original_shared_state = {field: getattr(shared_state, field) for field in SHARED_STATE_FIELDS}
+def test_refresh_stats_shows_the_counts_only_when_there_is_a_graph(qapp):
+    """The widget's Detections and Connections counts are hidden while
+    there is no graph, and show the session's numbers once there is one."""
+    parent = widget.QWidget()  # never shown, so the labels open no window
+    stand_in = SimpleNamespace(state=PluginState(),
+                               dets_label=widget.QLabel(parent), conns_label=widget.QLabel(parent))
 
-    try:
-        widget.viewer = _FakeViewer()
+    widget.TrackinWidget.refresh_stats(stand_in)
+    assert stand_in.dets_label.isHidden() and stand_in.conns_label.isHidden()
 
-        widget.track_file_label = widget.ElidedPathLabel()
-        widget.track_file_label.set_path("Track file loaded: old_tracks.csv")
+    stand_in.state.session.detections = [[Detection(10, 10)], [Detection(12, 12)]]
+    stand_in.state.session.graph = generate_graph(
+        stand_in.state.session.detections, max_score=1600, score_func="squared", tracked=False)
+    counts = stand_in.state.session.stats()
 
-        widget.leftover_row, widget.leftover_path_field = widget.create_path_row(
-            "Leftover detections", "..."
-        )
-        widget.session_row, widget.session_path_field = widget.create_path_row(
-            "Tracks accepted this session", "..."
-        )
-        widget.upd_track_row, widget.upd_track_path_field = widget.create_path_row(
-            "Combined tracks", "..."
-        )
-        for row in (widget.leftover_row, widget.session_row, widget.upd_track_row):
-            row.setVisible(True)  # simulate them being shown from a prior load
+    widget.TrackinWidget.refresh_stats(stand_in)
+    assert not stand_in.dets_label.isHidden() and not stand_in.conns_label.isHidden()
+    assert stand_in.dets_label.text() == f"Detections: {counts['detections']}"
+    assert stand_in.conns_label.text() == f"Connections: {counts['connections']}"
 
-        widget.dets_label = widget.QLabel("Detections: 42")
-        widget.conns_label = widget.QLabel("Connections: 99")
 
-        widget.session_files_header = widget.QPushButton("")
-        widget.session_files_header.setVisible(True)  # simulate it showing from a prior load
-        widget.session_files_content = widget.QWidget()
-        widget.set_session_files_expanded(True)  # simulate it being expanded from a prior load
+def test_clear_detections_and_tracks_resets_plugin_state_and_ui():
+    w = stand_in_widget(_FakeViewer())
+    # the widget's counts are refreshed by its refresh_stats
+    refreshed = []
+    w.refresh_stats = lambda: refreshed.append(True)
 
-        # Seed state as if a full session (images, detections, and a loaded
-        # track file) had already happened for the *previous* dataset
-        shared_state.DATA = [[(1, 2, 0, 0)]]
-        shared_state.track = [0]
-        shared_state.track_lines = np.array([[[1, 2], [3, 4]]])
-        shared_state.NUM_DET_PER_FRAME = [1]
-        shared_state.TRACKED = True
-        shared_state.MAX_TRACK_ID = 7
-        shared_state.G = object()  # value doesn't matter, only that it's reset to None
-        shared_state.N_TRACKS = 3
-        shared_state.SESSION_FILE = "track_session_old_20250101_000000.csv"
-        shared_state.UPDATED_DATA_FILE = "upd_old_20250101_000000.csv"
-        shared_state.UPD_TRACK_FILE = "with_new_tracks_added_old_20250101_000000.csv"
-        shared_state.NUM_DETS = 42
-        shared_state.NUM_CONN = 99
+    # the track file label and the Session Files panel as after a prior load
+    w.track_file_label.set_path("Track file loaded: old_tracks.csv")
+    w.session_files.show_paths("/old/upd.csv", "/old/session.csv", "/old/combined.csv")
 
-        widget.clear_detections_and_tracks()
+    # Seed state as if a full session (images, detections, and a loaded
+    # track file) had already happened for the *previous* dataset
+    w.state.session.detections = [[(1, 2, 0, 0)]]
+    w.state.track = [0]
+    w.state.session.has_prior_tracks = True
+    w.state.max_prior_track_id = 7
+    w.state.session.graph = object()  # value doesn't matter, only that it's reset to None
+    w.state.session.accepted = [[0], [0], [0]]  # three tracks accepted before
+    w.state.session_file = "track_session_old_20250101_000000.csv"
+    w.state.leftover_file = "upd_old_20250101_000000.csv"
+    w.state.combined_file = "with_new_tracks_added_old_20250101_000000.csv"
+    w.state.combined_extra_columns = ["label"]
+    w.state.output_folder = "/old/dataset"
+    w.state.n_detections_shown = 42
+    w.state.n_connections_shown = 99
 
-        assert shared_state.DATA == []
-        assert shared_state.track == []
-        assert shared_state.track_lines is None
-        assert shared_state.NUM_DET_PER_FRAME == []
-        assert shared_state.TRACKED is False
-        assert shared_state.MAX_TRACK_ID is None
-        assert shared_state.G is None
-        assert shared_state.N_TRACKS == 0
-        assert shared_state.SESSION_FILE == ''
-        assert shared_state.UPDATED_DATA_FILE == ''
-        assert shared_state.UPD_TRACK_FILE == ''
-        assert shared_state.NUM_DETS is None
-        assert shared_state.NUM_CONN is None
+    w.clear_detections_and_tracks()
 
-        assert widget.track_file_label.full_path == ""
-        assert widget.leftover_row.isVisible() is False
-        assert widget.session_row.isVisible() is False
-        assert widget.upd_track_row.isVisible() is False
+    assert w.state.session.detections == []
+    assert w.state.track == []
+    assert w.state.session.has_prior_tracks is False
+    assert w.state.max_prior_track_id is None
+    assert w.state.session.graph is None
+    assert w.state.session.accepted == []
+    assert w.state.session_file == ''
+    assert w.state.leftover_file == ''
+    assert w.state.combined_file == ''
+    assert w.state.combined_extra_columns == []
+    assert w.state.output_folder == ''
+    assert w.state.n_detections_shown is None
+    assert w.state.n_connections_shown is None
 
-        # The Detections/Connections labels only update in response to
-        # graph_updated_event -- clear_detections_and_tracks() must fire it
-        # itself, or these stay showing the *previous* dataset's stale
-        # counts until some unrelated keypress happens to fire it later.
-        assert widget.dets_label is None
-        assert widget.conns_label is None
+    assert w.track_file_label.full_path == ""
 
-        # The Session Files card should disappear entirely (not just
-        # collapse) -- there's nothing left in it to show until a new CSV
-        # is loaded.
-        assert widget.session_files_header.isVisible() is False
-        assert widget.session_files_content.isVisible() is False
-        assert widget.session_files_header.text() == "▸ Session Files"
-    finally:
-        widget.viewer = original_viewer
-        for name, value in original_widgets.items():
-            setattr(widget, name, value)
-        for field, value in original_shared_state.items():
-            setattr(shared_state, field, value)
+    # There is no graph left, so the widget's counts are refreshed to hide them
+    assert len(refreshed) == 1
+
+    # The Session Files panel should disappear entirely (not just
+    # collapse) -- there's nothing left in it to show until a new CSV
+    # is loaded.
+    panel = w.session_files
+    assert panel.isHidden()
+    assert panel.leftover_row.isHidden() and panel.session_row.isHidden() and panel.combined_row.isHidden()
+    assert panel.content.isHidden()
+    assert panel.header.text() == "▸ Session Files"
 
 
 def test_delete_detection_d_key_no_op_when_track_is_empty_list():
     """Right after images are reloaded (before a new CSV is loaded),
-    shared_state.track is [] -- the 'D' key path indexed into it with
-    curr_track[shared_state.current_index] unconditionally, an IndexError
+    the track is [] -- the 'D' key path indexed into it with
+    curr_track[current_frame] unconditionally, an IndexError
     crash on an empty list."""
-    original_track = shared_state.track
-    try:
-        shared_state.track = []
-        widget.delete_detection(None, use_key=True)  # must not raise
-    finally:
-        shared_state.track = original_track
+    w = stand_in_widget()
+    w.state.track = []
+    _interaction.delete_detection(w, None, use_key=True)  # must not raise
 
 
 class _FakeLayer:
@@ -352,137 +349,169 @@ class _FakeLayer:
 
 def test_delete_det_by_key_writes_updated_detections_file(tmp_path):
     """Deleting a detection via the 'D' key marked it as removed in
-    shared_state.DATA but never persisted that to UPDATED_DATA_FILE --
+    the session's detections but never persisted that to the leftover file --
     unlike adding a detection, which already did via the same function."""
-    original = {
-        field: getattr(shared_state, field)
-        for field in (
-            "current_index", "DATA", "TRACKED", "G", "track",
-            "csv_folder_to_save", "UPDATED_DATA_FILE",
-        )
-    }
-    original_clicked_index = getattr(widget, "clicked_index", None)
+    w = load_dataset(tmp_path, "tframe,y,x\n0,10,20\n0,30,40\n", n_frames=1)
+    w.state.track = [-1]
+    layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
+    _interaction.delete_det_by_key(w, layer, 0)
 
+    lines = (tmp_path / w.state.leftover_file).read_text().splitlines()
+    assert lines[0] == "tframe,y,x,displ_y,displ_x"
+    assert lines[1] == "0,30,40,0,0"  # the deleted detection is excluded
+
+
+def test_delete_det_by_key_shows_new_track_from_frame_0(tmp_path):
+    """Deleting a detection of the current track (D, or right-click on it)
+    proposes a new track, which can differ in earlier frames too, so the
+    view goes back to frame 0, as after accepting or saving a segment."""
+    w = load_dataset(tmp_path, "tframe,y,x\n0,10,20\n1,12,22\n1,30,40\n", n_frames=2)
+    w.state.track = [0, 0]
+    # the view and the slider are on frame 1
+    w.navigator.image_slider.image_index.value = 1
+    assert w.state.current_frame == 1
+
+    _interaction.delete_det_by_key(w, _FakeLayer(np.array([[12.0, 22.0], [30.0, 40.0]])), 0)
+
+    assert w.state.current_frame == 0
+    assert w.navigator.image_slider.image_index.value == 0
+
+
+def test_each_widget_has_its_own_navigator():
+    """Two widgets each get their own Frame slider, arrow-key timers and
+    held-key flags, so moving or holding a key in one leaves the other alone."""
+    w1, w2 = stand_in_widget(), stand_in_widget()
+    assert w1.navigator.image_slider is not w2.navigator.image_slider
+    assert w1.navigator.right_timer is not w2.navigator.right_timer
+
+    w1.navigator.image_slider.image_index.max = 5
+    assert w2.navigator.image_slider.image_index.max == 0
+
+    w1.navigator.right_key_held = True
+    _navigation.start_timer(w1.navigator.right_timer)
     try:
-        shared_state.current_index = 0
-        shared_state.DATA = [[(10, 20, 0, 0), (30, 40, 0, 0)]]
-        shared_state.TRACKED = False
-        shared_state.track = [-1]
-        shared_state.csv_folder_to_save = str(tmp_path)
-        shared_state.UPDATED_DATA_FILE = "updated.csv"
-        shared_state.G = generate_graph(
-            shared_state.DATA, max_score=1600, score_func="squared", tracked=False
-        )
-        widget.clicked_index = 0
-
-        layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
-        widget.delete_det_by_key(layer)
-
-        lines = (tmp_path / "updated.csv").read_text().splitlines()
-        assert lines[0] == "tframe,y,x,displ_y,displ_x"
-        assert lines[1] == "0,30,40,0,0"  # the deleted detection is excluded
+        assert w2.navigator.right_key_held is False
+        assert not w2.navigator.right_timer.isActive()
     finally:
-        for field, value in original.items():
-            setattr(shared_state, field, value)
-        widget.clicked_index = original_clicked_index
+        _navigation.stop_timer(w1.navigator.right_timer)
+
+
+def _two_widgets_on_one_viewer():
+    """Two stand-in widgets, each with its own state, set up one after the
+    other on the same napari viewer (without a window), as when Trackin is
+    opened a second time."""
+    viewer = ViewerModel()
+    w1, w2 = stand_in_widget(viewer), stand_in_widget(viewer)
+    w1.state, w2.state = PluginState(), PluginState()
+    initialize_viewer(w1)
+    initialize_viewer(w2)  # used to fail: keybinding Right already used
+    return viewer, w1, w2
+
+
+def test_opening_a_second_widget_on_the_same_viewer_works():
+    """Setting up a second widget on the same viewer gives it the keys and
+    replaces the first widget's zoom handler instead of adding another."""
+    viewer, w1, w2 = _two_widgets_on_one_viewer()
+    right = next(f for k, f in viewer.keymap.items() if str(k) == "Right")
+    assert right == w2.navigator.handle_right
+    wheel_handlers = [f for f in viewer.mouse_wheel_callbacks if f.__name__ == "on_mouse_wheel_zoom"]
+    assert len(wheel_handlers) == 1
+
+
+def test_zoom_is_kept_within_the_newest_widgets_limits():
+    """The zoom limits come from the state of the widget set up on the
+    viewer, not from another widget's state."""
+    viewer, w1, w2 = _two_widgets_on_one_viewer()
+    w1.state.min_zoom, w1.state.max_zoom = 0.01, 100
+    w2.state.min_zoom, w2.state.max_zoom = 1, 2
+    viewer.camera.zoom = 10
+    assert viewer.camera.zoom == 2
 
 
 def test_delete_det_by_mouse_writes_updated_detections_file(tmp_path):
     """Same bug as the 'D' key path, via right-click deletion instead."""
-    original = {
-        field: getattr(shared_state, field)
-        for field in (
-            "current_index", "DATA", "TRACKED", "G",
-            "csv_folder_to_save", "UPDATED_DATA_FILE",
-        )
-    }
-    original_clicked_index = getattr(widget, "clicked_index", None)
+    w = load_dataset(tmp_path, "tframe,y,x\n0,10,20\n0,30,40\n", n_frames=1)
+    layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
+    event = SimpleNamespace(handled=False)
+    _interaction.delete_det_by_mouse(w, layer, 1, event)
 
-    try:
-        shared_state.current_index = 0
-        shared_state.DATA = [[(10, 20, 0, 0), (30, 40, 0, 0)]]
-        shared_state.TRACKED = False
-        shared_state.csv_folder_to_save = str(tmp_path)
-        shared_state.UPDATED_DATA_FILE = "updated.csv"
-        shared_state.G = generate_graph(
-            shared_state.DATA, max_score=1600, score_func="squared", tracked=False
-        )
-        widget.clicked_index = 1
-
-        layer = _FakeLayer(np.array([[10.0, 20.0], [30.0, 40.0]]))
-        event = SimpleNamespace(handled=False)
-        widget.delete_det_by_mouse(layer, event)
-
-        lines = (tmp_path / "updated.csv").read_text().splitlines()
-        assert lines[0] == "tframe,y,x,displ_y,displ_x"
-        assert lines[1] == "0,10,20,0,0"  # the deleted detection (index 1) is excluded
-        assert event.handled is True
-    finally:
-        for field, value in original.items():
-            setattr(shared_state, field, value)
-        widget.clicked_index = original_clicked_index
+    lines = (tmp_path / w.state.leftover_file).read_text().splitlines()
+    assert lines[0] == "tframe,y,x,displ_y,displ_x"
+    assert lines[1] == "0,10,20,0,0"  # the deleted detection (index 1) is excluded
+    assert event.handled is True
 
 
-def test_update_file_paths_display_auto_expands_session_files_card(tmp_path):
+def test_update_file_paths_display_auto_expands_session_files_panel(tmp_path, loaded_widget):
     """A newly added file (e.g. from "Add Track File") should be immediately
     visible, not hidden behind a collapsed header the user has to think to
-    open -- update_file_paths_display() must expand the card whenever it
+    open -- update_file_paths_display() must expand the panel whenever it
     actually updates a row's content."""
-    original_csv_loaded = widget.csv_loaded
-    original_widgets = {
-        name: getattr(widget, name)
-        for name in (
-            "leftover_row",
-            "leftover_path_field",
-            "session_row",
-            "session_path_field",
-            "upd_track_row",
-            "upd_track_path_field",
-            "session_files_header",
-            "session_files_content",
-        )
-    }
-    original_shared_state = {
-        field: getattr(shared_state, field)
-        for field in ("csv_folder_to_save", "UPDATED_DATA_FILE", "SESSION_FILE", "MAX_TRACK_ID", "UPD_TRACK_FILE")
-    }
+    w = loaded_widget
+    w.session_files.hide_all()  # the panel hidden and closed, as before a detections file is loaded
 
-    try:
-        widget.csv_loaded = True
-        shared_state.csv_folder_to_save = str(tmp_path)
-        shared_state.UPDATED_DATA_FILE = "updated.csv"
-        shared_state.SESSION_FILE = "session.csv"
-        shared_state.MAX_TRACK_ID = None
+    w.update_file_paths_display()
 
-        widget.leftover_row, widget.leftover_path_field = widget.create_path_row(
-            "Leftover detections", "..."
-        )
-        widget.session_row, widget.session_path_field = widget.create_path_row(
-            "Tracks accepted this session", "..."
-        )
-        widget.upd_track_row, widget.upd_track_path_field = widget.create_path_row(
-            "Combined tracks", "..."
-        )
-
-        widget.session_files_header = widget.QPushButton("")
-        widget.session_files_header.setVisible(False)  # hidden until a CSV is loaded, as it would be by default
-        widget.session_files_content = widget.QWidget()
-        widget.set_session_files_expanded(False)  # start collapsed, as it would be by default
-
-        widget.update_file_paths_display()
-
-        assert widget.session_files_header.isVisible() is True
-        assert widget.session_files_content.isVisible() is True
-        assert widget.session_files_header.text() == "▾ Session Files"
-    finally:
-        widget.csv_loaded = original_csv_loaded
-        for name, value in original_widgets.items():
-            setattr(widget, name, value)
-        for field, value in original_shared_state.items():
-            setattr(shared_state, field, value)
+    panel = w.session_files
+    assert not panel.isHidden()
+    assert not panel.content.isHidden()
+    assert panel.header.text() == "▾ Session Files"
+    assert panel.leftover_path_field.full_path == str(tmp_path / w.state.leftover_file)
+    assert panel.combined_row.isHidden()  # no track file added
 
 
-def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
+def test_session_files_panel_shows_and_hides_its_rows(qapp):
+    """The Session Files panel shows the leftover and session files' rows,
+    the combined file's row only when there is one, and hides everything
+    again when there are no output files."""
+    panel = widget.SessionFilesPanel()
+    assert panel.isHidden()
+
+    panel.show_paths("/data/upd.csv", "/data/session.csv")
+    assert not panel.isHidden() and not panel.content.isHidden()
+    assert not panel.leftover_row.isHidden() and not panel.session_row.isHidden()
+    assert panel.combined_row.isHidden()
+
+    panel.show_paths("/data/upd.csv", "/data/session.csv", "/data/combined.csv")
+    assert not panel.combined_row.isHidden()
+    assert panel.combined_path_field.full_path == "/data/combined.csv"
+
+    panel.header.click()  # closes the panel's rows
+    assert panel.content.isHidden() and panel.header.text() == "▸ Session Files"
+    panel.header.click()  # and opens them again
+    assert not panel.content.isHidden() and panel.header.text() == "▾ Session Files"
+
+    panel.hide_all()
+    assert panel.isHidden()
+    assert panel.leftover_row.isHidden() and panel.session_row.isHidden() and panel.combined_row.isHidden()
+
+
+def test_update_image_draws_detections_of_file_without_track_no(tmp_path):
+    """Detections from a file without a track_no column must be drawn.
+    A Detection always has prior_track as its 5th value, which made
+    drawing fail for such files ("4 columns passed, passed data had 5")."""
+    w = load_dataset(tmp_path, "tframe,y,x\n0,10,10\n0,15,5\n", n_frames=1)
+    w.state.track = [0]
+
+    _layers.update_image(w)
+
+    assert len(w.viewer.layers["detections"].data) == 2
+
+
+def test_update_image_hides_deleted_detections(tmp_path):
+    """A deleted detection keeps its position in the session's detections (active=False), but
+    must not be seen: it is drawn far off-screen, at the same place in the
+    layer, so the index of a clicked point still matches its detection."""
+    w = load_dataset(tmp_path, "tframe,y,x\n0,10,10\n0,15,5\n", n_frames=1)
+    w.state.session.delete_detection(0, 1)  # the second detection, as D or right-click do
+    w.state.track = [0]
+
+    _layers.update_image(w)
+
+    points = w.viewer.layers["detections"].data.tolist()
+    assert points == [[10, 10], [-1000000, -1000000]]
+
+
+def test_update_image_clears_points_on_frame_without_detections(tmp_path):
     """Moving from a frame with detections to a frame without any must
     clear the points from the screen. Before, nothing was redrawn for an
     empty frame, so the previous frame's points (and the yellow track
@@ -491,25 +520,37 @@ def test_update_image_clears_points_on_frame_without_detections(monkeypatch):
     Uses napari's viewer without a window (ViewerModel), which has the same
     layers but draws nothing, so the test also runs on machines without
     graphics support."""
-    viewer = ViewerModel()
-    monkeypatch.setattr(widget, "viewer", viewer)
-    monkeypatch.setattr(widget, "images", [np.zeros((20, 20)), np.zeros((20, 20))])
-    monkeypatch.setattr(widget, "image_files", ["0.png", "1.png"])
-    monkeypatch.setattr(widget, "csv_data", pd.DataFrame())  # only needs to be "loaded"
-    monkeypatch.setattr(shared_state, "TRACKED", False)
     # frame 0 has one detection, which is on the current track; frame 1 has none
-    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0)], []])
-    monkeypatch.setattr(shared_state, "track", [0, -1])
+    w = load_dataset(tmp_path, "tframe,y,x\n0,10,10\n", n_frames=2)
+    w.state.track = [0, -1]
 
-    monkeypatch.setattr(shared_state, "current_index", 0)
-    widget.update_image()
-    assert len(viewer.layers["detections"].data) == 1
-    assert len(viewer.layers["track_point"].data) == 1
+    w.state.current_frame = 0
+    _layers.update_image(w)
+    assert len(w.viewer.layers["detections"].data) == 1
+    assert len(w.viewer.layers["track_point"].data) == 1
 
-    monkeypatch.setattr(shared_state, "current_index", 1)
-    widget.update_image()
-    assert len(viewer.layers["detections"].data) == 0
-    assert len(viewer.layers["track_point"].data) == 0
+    w.state.current_frame = 1
+    _layers.update_image(w)
+    assert len(w.viewer.layers["detections"].data) == 0
+    assert len(w.viewer.layers["track_point"].data) == 0
+
+
+def test_track_lines_are_drawn_again_after_being_emptied(tmp_path):
+    """The track lines layer is emptied when a track has fewer than two
+    points (and when new detections are loaded). napari then takes shapes
+    put into it for polygons, which two points don't draw, so the next
+    track's lines were invisible. They must be lines again."""
+    w = load_dataset(tmp_path, "tframe,y,x\n0,10,10\n1,20,20\n2,30,25\n", n_frames=3)
+
+    w.state.track = [0, 0, 0]   # a track over 3 frames: 2 lines
+    _layers.update_image(w)
+    w.state.track = [0, -1, -1]  # a single point: no lines, layer emptied
+    _layers.update_image(w)
+    assert len(w.viewer.layers["track_lines"].data) == 0
+    w.state.track = [0, 0, 0]   # a track over 3 frames again
+    _layers.update_image(w)
+
+    assert w.viewer.layers["track_lines"].shape_type == ["line", "line"]
 
 
 def test_list_image_files_ignores_other_files(tmp_path):
@@ -518,24 +559,14 @@ def test_list_image_files_ignores_other_files(tmp_path):
     they would be reported as images not named with a frame number."""
     for name in ["0.png", "1.TIF", ".DS_Store", "notes.txt"]:
         (tmp_path / name).write_bytes(b"")
-    assert sorted(widget.list_image_files(str(tmp_path))) == ["0.png", "1.TIF"]
+    assert sorted(core_io.list_image_files(str(tmp_path))) == ["0.png", "1.TIF"]
 
 
-# Session file name of the dataset that is open before a test tries to load
-# another folder or CSV. A stand-in only: no file with this name is created.
-OPEN_SESSION_FILE = "track_session_open_dataset_20250101_000000.csv"
-
-
-def _seed_open_dataset(monkeypatch):
-    """State as if a dataset (images and detections) were already open, to
-    check that a refused folder or file leaves it untouched."""
-    monkeypatch.setattr(widget, "images", ["open image"])
-    monkeypatch.setattr(widget, "image_files", ["0.png"])
-    monkeypatch.setattr(widget, "images_loaded", True)
-    monkeypatch.setattr(widget, "csv_loaded", True)
-    monkeypatch.setattr(shared_state, "DATA", [[(1, 2, 0, 0)]])
-    monkeypatch.setattr(shared_state, "track", [0])
-    monkeypatch.setattr(shared_state, "SESSION_FILE", OPEN_SESSION_FILE)
+def _open_dataset(w):
+    """What is open in the widget w: its images, image file names, session
+    (with its detections), track and session file name."""
+    return (w.state.images, list(w.state.image_files), w.state.session,
+            w.state.session.detections, list(w.state.track), w.state.session_file)
 
 
 def _record_critical_messages(monkeypatch):
@@ -543,96 +574,101 @@ def _record_critical_messages(monkeypatch):
     so a test can check the message without anyone clicking OK."""
     messages = []
     monkeypatch.setattr(
-        widget.QMessageBox, "critical",
+        _loading.QMessageBox, "critical",
         lambda parent, title, text: messages.append((title, text)),
     )
     return messages
 
 
-def _assert_open_dataset_untouched():
-    """The dataset set up by _seed_open_dataset is still loaded as it was.
-    An unchanged SESSION_FILE means no new session was started, so accepted
+def _assert_open_dataset_untouched(w, before):
+    """The dataset noted down by _open_dataset is still loaded as it was.
+    An unchanged session file name means no new session was started, so accepted
     tracks would still be saved to the open dataset's session file."""
-    assert widget.images == ["open image"]
-    assert widget.image_files == ["0.png"]
-    assert shared_state.DATA == [[(1, 2, 0, 0)]]
-    assert shared_state.track == [0]
-    assert shared_state.SESSION_FILE == OPEN_SESSION_FILE
+    images, image_files, session, detections, track, session_file = before
+    assert w.state.images is images
+    assert w.state.image_files == image_files
+    assert w.state.session is session
+    assert w.state.session.detections is detections
+    assert w.state.track == track
+    assert w.state.session_file == session_file
 
 
-def test_choose_folder_refuses_missing_image_and_keeps_open_dataset(tmp_path, monkeypatch):
+def test_choose_folder_refuses_missing_image_and_keeps_open_dataset(tmp_path, monkeypatch, loaded_widget):
     """Load Images on a folder with 0.png, 1.png and 3.png (no 2.png) must
     show the "Images Not Loaded" error naming frame 2, and leave the dataset
     that was already open exactly as it was. The image names are checked
     before anything is read, so the (empty) files never need to be opened."""
+    w = loaded_widget
+    before = _open_dataset(w)
+    folder = tmp_path / "new_images"
+    folder.mkdir()
     for name in ["0.png", "1.png", "3.png"]:
-        (tmp_path / name).write_bytes(b"")
-    _seed_open_dataset(monkeypatch)
+        (folder / name).write_bytes(b"")
     messages = _record_critical_messages(monkeypatch)
     # the folder dialog picks the test folder instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path)
+        _loading.QFileDialog, "getExistingDirectory", lambda *args: str(folder)
     )
 
-    widget.choose_folder()
+    _loading.choose_folder(w)
 
     assert len(messages) == 1
     title, text = messages[0]
     assert title == "Images Not Loaded"
     assert "There is no image for frame 2." in text
-    _assert_open_dataset_untouched()
+    _assert_open_dataset_untouched(w, before)
 
 
-def test_choose_folder_refuses_unreadable_image_and_keeps_open_dataset(tmp_path, monkeypatch):
+def test_choose_folder_refuses_unreadable_image_and_keeps_open_dataset(tmp_path, monkeypatch, loaded_widget):
     """Load Images on a correctly numbered folder where one file is not a
     valid image (1.png) must refuse the folder -- every later image would
     otherwise shift one frame -- and leave the dataset that was already
     open exactly as it was."""
-    imsave(str(tmp_path / "0.png"), np.zeros((5, 5), dtype=np.uint8))
-    (tmp_path / "1.png").write_bytes(b"not an image")
-    _seed_open_dataset(monkeypatch)
+    w = loaded_widget
+    before = _open_dataset(w)
+    folder = tmp_path / "new_images"
+    folder.mkdir()
+    imsave(str(folder / "0.png"), np.zeros((5, 5), dtype=np.uint8))
+    (folder / "1.png").write_bytes(b"not an image")
     messages = _record_critical_messages(monkeypatch)
     # the folder dialog picks the test folder instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path)
+        _loading.QFileDialog, "getExistingDirectory", lambda *args: str(folder)
     )
 
-    widget.choose_folder()
+    _loading.choose_folder(w)
 
     # one message for all unreadable images, naming them
     assert len(messages) == 1
     title, text = messages[0]
     assert title == "Images Not Loaded"
     assert "These images could not be opened: 1.png." in text
-    _assert_open_dataset_untouched()
+    _assert_open_dataset_untouched(w, before)
 
 
-def test_load_csv_refuses_detections_without_image_and_keeps_open_dataset(tmp_path, monkeypatch):
+def test_load_detections_refuses_detections_without_image_and_keeps_open_dataset(tmp_path, monkeypatch):
     """With 2 images loaded (frames 0 and 1), Load Detections on a CSV with
     a detection in frame 5 must show the "Detections Not Loaded" error with
     that frame and the allowed range, and leave the detections and track
     that were already loaded exactly as they were."""
-    csv_path = tmp_path / "detections.csv"
+    w = load_dataset(tmp_path, "tframe,y,x\n0,10,10\n1,10,12\n", n_frames=2)  # frames 0 and 1
+    before = _open_dataset(w)
+    csv_path = tmp_path / "new_detections.csv"
     csv_path.write_text("tframe,y,x\n0,10,10\n1,20,20\n5,30,30\n")
-    _seed_open_dataset(monkeypatch)
-    monkeypatch.setattr(widget, "images", ["image 0", "image 1"])  # frames 0 and 1
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test CSV instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
+        _loading.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
     )
 
-    widget.load_csv()
+    _loading.load_detections(w)
 
     assert len(messages) == 1
     title, text = messages[0]
     assert title == "Detections Not Loaded"
     assert "1 detection(s) are in frame(s) 5" in text
     assert "only images for frames 0 to 1" in text
-    assert widget.images == ["image 0", "image 1"]
-    assert shared_state.DATA == [[(1, 2, 0, 0)]]
-    assert shared_state.track == [0]
-    assert shared_state.SESSION_FILE == OPEN_SESSION_FILE
+    _assert_open_dataset_untouched(w, before)
 
 
 # --- Extra columns of the detections file (e.g. label, area) ---------------
@@ -644,21 +680,18 @@ def test_read_detections_csv_keeps_extra_columns_as_they_are(tmp_path):
     csv_path = tmp_path / "detections.csv"
     csv_path.write_text("tframe,y,x,label,area\n0,10.7,20,cell_A,350.5\n")
 
-    df = widget.read_detections_csv(str(csv_path))
+    df = core_io.read_detections_csv(str(csv_path))
 
     assert df["y"].tolist() == [10]  # tracking column: whole number, as before
     assert df["label"].tolist() == ["cell_A"]  # text kept
     assert df["area"].tolist() == [350.5]  # decimals kept
 
 
-def test_generate_positions_list_stores_extra_values(tmp_path, monkeypatch):
-    """Each detection's extra values are stored in shared_state.EXTRA, in the
-    same place as its position in DATA. The positions stay whole numbers even
-    though the extra columns hold text and decimals."""
-    monkeypatch.setattr(shared_state, "DATA", [])
-    monkeypatch.setattr(shared_state, "TRACKED", False)
-    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
-    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "area"])
+def test_session_from_dataframe_stores_extra_values():
+    """Each detection's extra values are stored in the detection itself
+    (its `extra`), and the session knows the extra columns' names. The
+    positions stay whole numbers even though the extra columns hold text and
+    decimals. Without a track_no column, there are no prior tracks."""
     df = pd.DataFrame(
         {
             "tframe": [0, 2],
@@ -671,27 +704,28 @@ def test_generate_positions_list_stores_extra_values(tmp_path, monkeypatch):
         }
     )
 
-    data = widget.generate_positions_list(df, str(tmp_path), n_frames=3)
+    session = Session.from_dataframe(df, n_frames=3)
+    data = session.detections
 
-    assert data[0] == [(10, 20, 0, 0)]
-    assert type(data[0][0][0]) is int  # not turned into a decimal or text
-    assert shared_state.EXTRA[0] == [("cell_A", 350.5)]
-    assert shared_state.EXTRA[1] == []  # empty frame
-    assert shared_state.EXTRA[2] == [("cell_B", 410.0)]
+    assert session.extra_columns == ["label", "area"]
+    assert session.has_prior_tracks is False
+    assert data[0] == [Detection(10, 20, extra=("cell_A", 350.5))]
+    assert type(data[0][0].y) is int  # not turned into a decimal or text
+    assert data[1] == []  # empty frame
+    assert data[2] == [Detection(30, 40, extra=("cell_B", 410.0))]
 
 
-def test_write_updated_detections_to_file_writes_extra_columns(tmp_path, monkeypatch):
+def test_write_leftover_file_writes_extra_columns(tmp_path):
     """The leftover file has the extra columns after the standard ones. A
     value containing a comma is put in quotes so it stays one cell, a missing
     value is left blank, and a deleted detection is still left out."""
-    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
-    monkeypatch.setattr(shared_state, "EXTRA", [[(7, "cell_A"), (8, "x, y")], [(9, float("nan"))]])
     data = [
-        [(10, 20, 0, 0), (-1000000, -1000000, 0, 0)],  # frame 0: one real, one deleted
-        [(30, 40, 0, 0)],
+        # frame 0: one real, one deleted
+        [Detection(10, 20, extra=(7, "cell_A")), Detection(50, 60, active=False, extra=(8, "x, y"))],
+        [Detection(30, 40, extra=(9, float("nan")))],
     ]
 
-    write_updated_detections_to_file(data, "out.csv", str(tmp_path))
+    write_leftover_file(tmp_path / "out.csv", data, ["label", "note"])
 
     lines = (tmp_path / "out.csv").read_text().splitlines()
     assert lines == [
@@ -701,28 +735,29 @@ def test_write_updated_detections_to_file_writes_extra_columns(tmp_path, monkeyp
     ]
 
 
-def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
+def test_accept_track_writes_extra_columns(tmp_path):
     """Accepting a track writes its detections' extra values into the
-    session file (after track_no), and the remaining detections' extra values
-    into the leftover file. A value containing a comma is put in quotes."""
-    from trackin import utils
+    session file (after track_no), and the plugin then writes the remaining
+    detections' extra values into the leftover file. A value containing a
+    comma is put in quotes."""
+    w = stand_in_widget()
+    w.state.session.has_prior_tracks = False
+    w.state.session.detections = [
+        [Detection(10, 10, extra=(7, "cell_A")), Detection(50, 50, extra=(8, "x, y"))],
+        [Detection(12, 12, extra=(9, float("nan")))],
+    ]
+    w.state.session.extra_columns = ["label", "note"]
+    w.state.track = [0, 0]  # first detection of frame 0, then of frame 1
+    w.state.max_prior_track_id = None
+    w.state.output_folder = str(tmp_path)
+    w.state.session_file = "session.csv"
+    w.state.leftover_file = "leftover.csv"
+    w.state.session.graph = generate_graph(
+        w.state.session.detections, max_score=1600, score_func="squared", tracked=False)
 
-    monkeypatch.setattr(shared_state, "TRACKED", False)
-    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0), (50, 50, 0, 0)], [(12, 12, 0, 0)]])
-    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
-    monkeypatch.setattr(shared_state, "EXTRA", [[(7, "cell_A"), (8, "x, y")], [(9, float("nan"))]])
-    monkeypatch.setattr(shared_state, "track", [0, 0])  # first detection of frame 0, then of frame 1
-    monkeypatch.setattr(shared_state, "N_TRACKS", 0)
-    monkeypatch.setattr(shared_state, "MAX_TRACK_ID", None)
-    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
-    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
-    monkeypatch.setattr(shared_state, "UPDATED_DATA_FILE", "leftover.csv")
-    monkeypatch.setattr(
-        shared_state, "G",
-        generate_graph(shared_state.DATA, max_score=1600, score_func="squared", tracked=False),
-    )
-
-    utils.accept_track()
+    w.state.session.accept_track(w.state.track)
+    _interaction.save_accepted_track(w)
+    _interaction.save_leftover_file(w)
 
     assert (tmp_path / "session.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
@@ -735,28 +770,22 @@ def test_accept_track_writes_extra_columns(tmp_path, monkeypatch):
     ]
 
 
-def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
+def test_add_detection_gets_no_value_in_extra_columns(tmp_path):
     """A detection added by shift-clicking didn't come from the detections
     file, so it gets -1 (NO_VALUE) in every extra column, in memory and in
     the leftover file."""
-    monkeypatch.setattr(shared_state, "TRACKED", False)
-    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0)], [(20, 20, 0, 0)]])
-    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label"])
-    monkeypatch.setattr(shared_state, "EXTRA", [[(7,)], [(8,)]])
-    monkeypatch.setattr(shared_state, "NUM_DET_PER_FRAME", [1, 1])
-    monkeypatch.setattr(shared_state, "track", [0, 0])
-    monkeypatch.setattr(shared_state, "current_index", 0)
-    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
-    monkeypatch.setattr(shared_state, "UPDATED_DATA_FILE", "leftover.csv")
-    monkeypatch.setattr(
-        shared_state, "G",
-        generate_graph(shared_state.DATA, max_score=1600, score_func="squared", tracked=False),
-    )
-    monkeypatch.setattr(widget, "images", [np.zeros((50, 50)), np.zeros((50, 50))])
-    monkeypatch.setattr(widget, "new_point_added", False)
-    # existing labels, so the detection counter just updates them
-    monkeypatch.setattr(widget, "dets_label", widget.QLabel(""))
-    monkeypatch.setattr(widget, "conns_label", widget.QLabel(""))
+    w = stand_in_widget()
+    w.state.session.has_prior_tracks = False
+    w.state.session.detections = [[Detection(10, 10, extra=(7,))], [Detection(20, 20, extra=(8,))]]
+    w.state.session.extra_columns = ["label"]
+    w.state.track = [0, 0]
+    w.state.current_frame = 0
+    w.state.output_folder = str(tmp_path)
+    w.state.leftover_file = "leftover.csv"
+    w.state.session.graph = generate_graph(
+        w.state.session.detections, max_score=1600, score_func="squared", tracked=False)
+    w.state.images = [np.zeros((50, 50)), np.zeros((50, 50))]
+    w.state.new_point_added = False
 
     # stand-ins for the napari points layer and the shift-click
     layer = SimpleNamespace(
@@ -768,9 +797,11 @@ def test_add_detection_gets_no_value_in_extra_columns(tmp_path, monkeypatch):
     )
     event = SimpleNamespace(button=1, modifiers=["Shift"], position=(30, 40))
 
-    widget.add_detection(layer, event)
+    _interaction.add_detection(w, layer, event)
 
-    assert shared_state.EXTRA[0] == [(7,), (-1,)]
+    added = w.state.session.detections[0][1]
+    assert added.extra == (-1,)
+    assert added.added is True
     assert (tmp_path / "leftover.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,label",
         "0,10,10,0,0,7",
@@ -783,38 +814,28 @@ def test_load_track_file_combined_file_has_extra_columns(tmp_path, monkeypatch):
     """Add Track File writes a combined file whose header includes the
     detections file's extra columns, so tracks accepted later line up with
     it. Rows from the loaded track file (which has no extra columns) get -1
-    (NO_VALUE) there, and rows from this session keep their values exactly
-    (007 stays 007, it is not turned into the number 7)."""
-    (tmp_path / "session.csv").write_text(
-        "tframe,y,x,displ_y,displ_x,track_no,label,note\n"
-        "0,10,10,0,0,1,007,cell_A\n"
-    )
+    (NO_VALUE) there, and this session's accepted tracks keep their extra
+    values exactly as the session has them."""
     track_file = tmp_path / "previous_tracks.csv"
     track_file.write_text("tframe,y,x,displ_y,displ_x,track_no\n0,5,5,0,0,3\n")
 
-    monkeypatch.setattr(widget, "images_loaded", True)
-    monkeypatch.setattr(widget, "csv_loaded", True)
-    monkeypatch.setattr(widget, "track_file_label", None)
-    monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
-    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
-    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
-    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
-    monkeypatch.setattr(shared_state, "UPD_TRACK_FILE", "")
-    monkeypatch.setattr(shared_state, "MAX_TRACK_ID", None)
+    w = load_dataset(tmp_path, "tframe,y,x,label,note\n0,10,10,7,cell_A\n", n_frames=1)
+    # one track accepted in this session (detection 0 of frame 0)
+    w.state.session.accept_track([0])
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test track file instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
+        _loading.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
     )
 
-    widget.load_track_file()
+    _loading.load_track_file(w)
 
     assert messages == []
-    combined = (tmp_path / shared_state.UPD_TRACK_FILE).read_text().splitlines()
+    combined = (tmp_path / w.state.combined_file).read_text().splitlines()
     assert combined == [
         "tframe,y,x,displ_y,displ_x,track_no,label,note",
         "0,5,5,0,0,3,-1,-1",  # from the loaded track file: no extra values
-        "0,10,10,0,0,4,007,cell_A",  # this session's track, renumbered after 3
+        "0,10,10,0,0,4,7,cell_A",  # this session's track, renumbered after 3
     ]
 
 
@@ -824,37 +845,26 @@ def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path,
     columns of both files, each once and the track file's first. Where a
     file doesn't have a column, its rows get -1 there: the track file has no
     "note", this session has no "quality"."""
-    (tmp_path / "session.csv").write_text(
-        "tframe,y,x,displ_y,displ_x,track_no,label,note\n"
-        "0,10,10,0,0,1,7,cell_A\n"
-    )
     track_file = tmp_path / "previous_tracks.csv"
     track_file.write_text(
         "tframe,y,x,displ_y,displ_x,track_no,label,quality\n"
         "0,5,5,0,0,3,4,good\n"
     )
 
-    monkeypatch.setattr(widget, "images_loaded", True)
-    monkeypatch.setattr(widget, "csv_loaded", True)
-    monkeypatch.setattr(widget, "track_file_label", None)
-    monkeypatch.setattr(widget, "update_file_paths_display", lambda: None)
-    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
-    monkeypatch.setattr(shared_state, "COMBINED_EXTRA_COLUMNS", [])
-    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
-    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
-    monkeypatch.setattr(shared_state, "UPD_TRACK_FILE", "")
-    monkeypatch.setattr(shared_state, "MAX_TRACK_ID", None)
+    w = load_dataset(tmp_path, "tframe,y,x,label,note\n0,10,10,7,cell_A\n", n_frames=1)
+    # one track accepted in this session (detection 0 of frame 0)
+    w.state.session.accept_track([0])
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test track file instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
+        _loading.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
     )
 
-    widget.load_track_file()
+    _loading.load_track_file(w)
 
     assert messages == []
-    assert shared_state.COMBINED_EXTRA_COLUMNS == ["label", "quality", "note"]
-    combined = (tmp_path / shared_state.UPD_TRACK_FILE).read_text().splitlines()
+    assert w.state.combined_extra_columns == ["label", "quality", "note"]
+    combined = (tmp_path / w.state.combined_file).read_text().splitlines()
     assert combined == [
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
         "0,5,5,0,0,3,4,good,-1",  # from the track file: no "note"
@@ -862,7 +872,7 @@ def test_load_track_file_accepts_track_file_with_its_own_extra_columns(tmp_path,
     ]
 
 
-def test_load_track_file_refuses_file_not_starting_with_standard_columns(tmp_path, monkeypatch):
+def test_load_track_file_refuses_file_not_starting_with_standard_columns(tmp_path, monkeypatch, loaded_widget):
     """A track file that doesn't start with the standard columns, in order,
     is refused with a message saying what it should start with. The combined
     file that was in use (name and track numbering) stays as it was, so
@@ -870,57 +880,52 @@ def test_load_track_file_refuses_file_not_starting_with_standard_columns(tmp_pat
     track_file = tmp_path / "not_a_track_file.csv"
     track_file.write_text("label,tframe,y,x\n7,0,5,5\n")
 
-    monkeypatch.setattr(widget, "images_loaded", True)
-    monkeypatch.setattr(widget, "csv_loaded", True)
-    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
-    monkeypatch.setattr(shared_state, "UPD_TRACK_FILE", "with_new_tracks_added_in_use.csv")
-    monkeypatch.setattr(shared_state, "MAX_TRACK_ID", 3)
+    w = loaded_widget
+    # a track file was added earlier: its combined file is in use
+    w.state.combined_file = "with_new_tracks_added_in_use.csv"
+    w.state.max_prior_track_id = 3
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test file instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
+        _loading.QFileDialog, "getOpenFileName", lambda *args: (str(track_file), "")
     )
 
-    widget.load_track_file()
+    _loading.load_track_file(w)
 
     assert len(messages) == 1
     title, text = messages[0]
     assert title == "Track File Not Loaded"
     assert "must start with these columns, in this order: tframe, y, x, displ_y, displ_x, track_no" in text
     assert "It starts with: label, tframe, y, x." in text
-    assert shared_state.UPD_TRACK_FILE == "with_new_tracks_added_in_use.csv"
-    assert shared_state.MAX_TRACK_ID == 3
+    assert w.state.combined_file == "with_new_tracks_added_in_use.csv"
+    assert w.state.max_prior_track_id == 3
 
 
-def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeypatch):
+def test_accept_track_writes_combined_file_in_its_column_order(tmp_path):
     """After Add Track File, an accepted track is appended to the combined
     file in that file's column order. Here the combined file has a column
     ("quality") that only the loaded track file had, so the new rows get -1
     there; the session file keeps only the detections file's columns."""
-    from trackin import utils
-
     (tmp_path / "combined.csv").write_text(
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note\n"
         "0,5,5,0,0,3,4,good,-1\n"
     )
-    monkeypatch.setattr(shared_state, "TRACKED", False)
-    monkeypatch.setattr(shared_state, "DATA", [[(10, 10, 0, 0)], [(12, 12, 0, 0)]])
-    monkeypatch.setattr(shared_state, "EXTRA_COLUMNS", ["label", "note"])
-    monkeypatch.setattr(shared_state, "EXTRA", [[(7, "cell_A")], [(8, "cell_A")]])
-    monkeypatch.setattr(shared_state, "COMBINED_EXTRA_COLUMNS", ["label", "quality", "note"])
-    monkeypatch.setattr(shared_state, "track", [0, 0])
-    monkeypatch.setattr(shared_state, "N_TRACKS", 0)
-    monkeypatch.setattr(shared_state, "MAX_TRACK_ID", 3)
-    monkeypatch.setattr(shared_state, "csv_folder_to_save", str(tmp_path))
-    monkeypatch.setattr(shared_state, "SESSION_FILE", "session.csv")
-    monkeypatch.setattr(shared_state, "UPDATED_DATA_FILE", "leftover.csv")
-    monkeypatch.setattr(shared_state, "UPD_TRACK_FILE", "combined.csv")
-    monkeypatch.setattr(
-        shared_state, "G",
-        generate_graph(shared_state.DATA, max_score=1600, score_func="squared", tracked=False),
-    )
+    w = stand_in_widget()
+    w.state.session.has_prior_tracks = False
+    w.state.session.detections = [[Detection(10, 10, extra=(7, "cell_A"))], [Detection(12, 12, extra=(8, "cell_A"))]]
+    w.state.session.extra_columns = ["label", "note"]
+    w.state.combined_extra_columns = ["label", "quality", "note"]
+    w.state.track = [0, 0]
+    w.state.max_prior_track_id = 3
+    w.state.output_folder = str(tmp_path)
+    w.state.session_file = "session.csv"
+    w.state.leftover_file = "leftover.csv"
+    w.state.combined_file = "combined.csv"
+    w.state.session.graph = generate_graph(
+        w.state.session.detections, max_score=1600, score_func="squared", tracked=False)
 
-    utils.accept_track()
+    w.state.session.accept_track(w.state.track)
+    _interaction.save_accepted_track(w)
 
     assert (tmp_path / "combined.csv").read_text().splitlines() == [
         "tframe,y,x,displ_y,displ_x,track_no,label,quality,note",
@@ -933,29 +938,30 @@ def test_accept_track_writes_combined_file_in_its_column_order(tmp_path, monkeyp
     )
 
 
-def test_load_csv_shows_error_for_unreadable_file_and_keeps_open_dataset(tmp_path, monkeypatch):
+def test_load_detections_shows_error_for_unreadable_file_and_keeps_open_dataset(tmp_path, monkeypatch, loaded_widget):
     """Load Detections on a CSV that can't be read -- here line 3 has 4
     values but the header only 3 columns, as happens with a decimal comma
     (2,5 instead of 2.5) -- must show the "Detections Not Loaded" error with
     the reason, and leave the dataset that was already open as it was.
     Before, the error only appeared in the terminal and nothing in the app."""
-    csv_path = tmp_path / "detections.csv"
+    w = loaded_widget
+    before = _open_dataset(w)
+    csv_path = tmp_path / "new_detections.csv"
     csv_path.write_text("tframe,y,x\n0,10,10\n0,2,5,20\n")
-    _seed_open_dataset(monkeypatch)
     messages = _record_critical_messages(monkeypatch)
     # the file dialog picks the test CSV instead of asking the user
     monkeypatch.setattr(
-        widget.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
+        _loading.QFileDialog, "getOpenFileName", lambda *args: (str(csv_path), "")
     )
 
-    widget.load_csv()
+    _loading.load_detections(w)
 
     assert len(messages) == 1
     title, text = messages[0]
     assert title == "Detections Not Loaded"
     assert text.startswith("The detections file could not be read:")
     assert "Expected 3 fields in line 3, saw 4" in text
-    _assert_open_dataset_untouched()
+    _assert_open_dataset_untouched(w, before)
 
 
 def test_read_detections_csv_refuses_extra_value_on_first_line(tmp_path):
@@ -967,7 +973,7 @@ def test_read_detections_csv_refuses_extra_value_on_first_line(tmp_path):
     csv_path.write_text("tframe,y,x\n0,10,2,5\n1,20,20\n")
 
     with pytest.raises(ValueError, match="Line 2 has more values than the header has columns"):
-        widget.read_detections_csv(str(csv_path))
+        core_io.read_detections_csv(str(csv_path))
 
 
 def test_read_detections_csv_refuses_file_without_required_columns(tmp_path):
@@ -978,7 +984,7 @@ def test_read_detections_csv_refuses_file_without_required_columns(tmp_path):
     csv_path.write_text("frame,y,x\n0,10,10\n")
 
     with pytest.raises(ValueError) as error:
-        widget.read_detections_csv(str(csv_path))
+        core_io.read_detections_csv(str(csv_path))
 
     assert "must have the columns tframe, y and x, but it has no tframe" in str(error.value)
     assert "Its columns are: frame, y, x." in str(error.value)
@@ -992,7 +998,202 @@ def test_read_detections_csv_refuses_file_separated_by_semicolons(tmp_path):
     csv_path.write_text("tframe;y;x\n0;10;10\n")
 
     with pytest.raises(ValueError) as error:
-        widget.read_detections_csv(str(csv_path))
+        core_io.read_detections_csv(str(csv_path))
 
     assert "but it has no tframe, y, x" in str(error.value)
     assert "Its columns are: tframe;y;x." in str(error.value)
+
+
+def test_click_changes_the_edited_track_not_the_proposal():
+    """The track being edited is a copy of the session's proposal: left-
+    clicking a detection changes that copy (which W, Shift-Z, X and accept
+    are given), while the session's proposal stays as the session made it."""
+    w = stand_in_widget()
+    w.state.session.proposal = [0, 0]  # the proposal
+    _interaction.use_proposed_track(w)
+    w.state.current_frame = 1
+    w.state.new_point_added = False
+    layer = SimpleNamespace(get_value=lambda position, world: 1)  # the click hits detection 1
+
+    _interaction.on_click(w, layer, SimpleNamespace(button=1, position=(5, 5)))
+
+    assert w.state.track == [0, 1]
+    assert w.state.session.proposal == [0, 0]
+
+
+def test_session_from_dataframe_with_track_no_has_prior_tracks():
+    """A table with a track_no column comes from an earlier tracking run:
+    the session notes that it has prior tracks, keeps each detection's
+    earlier track number (prior_track), and track_no is not an extra column."""
+    df = pd.DataFrame({"tframe": [0, 1], "y": [10, 12], "x": [20, 22],
+                       "displ_y": [0, 0], "displ_x": [0, 0], "track_no": [7, 7]})
+
+    session = Session.from_dataframe(df, n_frames=2)
+
+    assert session.has_prior_tracks is True
+    assert session.detections[0][0].prior_track == 7
+    assert session.extra_columns == []
+
+
+def test_accept_and_delete_segment_write_the_leftover_file(tmp_path):
+    """The session no longer writes files itself: after Shift-Q and Shift-Z,
+    the plugin writes the leftover file, which then holds only the
+    detections that are still available."""
+    w = load_dataset(tmp_path, "tframe,y,x\n0,10,10\n0,50,50\n1,12,12\n1,52,52\n", n_frames=2)
+    leftover = tmp_path / w.state.leftover_file
+
+    w.state.track = [0, 0]
+    _interaction.acceptTrack(w)  # Shift-Q
+    assert leftover.read_text().splitlines() == ["tframe,y,x,displ_y,displ_x", "0,50,50,0,0", "1,52,52,0,0"]
+
+    w.state.track = [1, 1]
+    w.state.current_frame = 1
+    _interaction.deleteSegment(w)  # Shift-Z
+    assert leftover.read_text().splitlines() == ["tframe,y,x,displ_y,displ_x"]
+
+
+def test_accept_writes_the_session_and_combined_files(tmp_path):
+    """The session no longer writes files itself: after Shift-Q, the plugin
+    appends the accepted track to the session file (numbered 1, 2, ...) and,
+    once a track file has been added, to the combined file (numbered after
+    that file's highest track number)."""
+    w = load_dataset(tmp_path, "tframe,y,x\n0,10,10\n0,50,50\n1,12,12\n1,52,52\n", n_frames=2)
+    w.state.combined_file = "combined.csv"
+    w.state.max_prior_track_id = 3  # a track file with tracks 1-3 was added
+
+    w.state.track = [0, 0]
+    _interaction.acceptTrack(w)  # Shift-Q
+
+    assert (tmp_path / w.state.session_file).read_text().splitlines() == [
+        "tframe,y,x,displ_y,displ_x,track_no", "0,10,10,0,0,1", "1,12,12,0,0,1"]
+    assert (tmp_path / "combined.csv").read_text().splitlines() == ["0,10,10,0,0,4", "1,12,12,0,0,4"]
+
+
+
+def test_open_images_folder_loads_the_images(tmp_path):
+    """open_images_folder loads a folder of images without a dialog: the
+    images in frame order, shown from frame 0, with the slider fitted."""
+    images_folder, _ = write_dataset(tmp_path, "tframe,y,x\n0,10,10\n1,10,11\n2,10,12\n", n_frames=3)
+    w = stand_in_widget(ViewerModel())
+
+    _loading.open_images_folder(w, str(images_folder))
+
+    assert w.state.images_loaded
+    assert w.state.image_files == ["0.png", "1.png", "2.png"]
+    assert len(w.state.images) == 3
+    assert w.state.current_frame == 0
+    assert w.navigator.image_slider.image_index.max == 2
+
+
+def test_open_detections_starts_a_tracking_session(tmp_path):
+    """open_detections loads a detections file without a dialog: a new
+    session with the file's detections, a proposed track, and the output
+    files named after the file in its folder (the session file created
+    empty)."""
+    images_folder, detections_file = write_dataset(tmp_path, "tframe,y,x\n0,10,10\n1,10,11\n", n_frames=2)
+    w = stand_in_widget(ViewerModel())
+    _loading.open_images_folder(w, str(images_folder))
+
+    _loading.open_detections(w, str(detections_file))
+
+    assert w.state.csv_loaded
+    assert [len(frame) for frame in w.state.session.detections] == [1, 1]
+    assert w.state.track == [0, 0]
+    assert w.state.output_folder == str(tmp_path)
+    assert w.state.session_file.startswith("track_session_detections_")
+    assert w.state.leftover_file.startswith("upd_detections_")
+    assert (tmp_path / w.state.session_file).read_text() == ""
+
+
+def test_open_detections_names_the_output_files_after_the_whole_file_name(tmp_path):
+    """The output files are named after the detections file's whole name,
+    dots included: "my.cells.csv" gives "track_session_my.cells_...".
+    Before, the name was cut at its first dot, and on Windows the whole
+    path ended up in the name, so loading failed."""
+    images_folder, detections_file = write_dataset(tmp_path, "tframe,y,x\n0,10,10\n1,10,11\n", n_frames=2)
+    detections_file = detections_file.rename(tmp_path / "my.cells.csv")
+    w = stand_in_widget(ViewerModel())
+    _loading.open_images_folder(w, str(images_folder))
+
+    _loading.open_detections(w, str(detections_file))
+
+    assert w.state.session_file.startswith("track_session_my.cells_")
+    assert w.state.leftover_file.startswith("upd_my.cells_")
+    assert (tmp_path / w.state.session_file).read_text() == ""
+
+
+def test_open_track_file_writes_the_combined_file(tmp_path):
+    """open_track_file adds a track file without a dialog: it writes the
+    combined file next to the detections file, numbers new tracks after
+    the file's highest track number and shows the file's name."""
+    images_folder, detections_file = write_dataset(tmp_path, "tframe,y,x\n0,10,10\n1,10,11\n", n_frames=2)
+    w = stand_in_widget(ViewerModel())
+    _loading.open_images_folder(w, str(images_folder))
+    _loading.open_detections(w, str(detections_file))
+    track_file = tmp_path / "earlier_tracks.csv"
+    track_file.write_text("tframe,y,x,displ_y,displ_x,track_no\n0,5,5,0,0,4\n1,6,6,0,0,4\n")
+
+    _loading.open_track_file(w, str(track_file))
+
+    assert w.state.max_prior_track_id == 4
+    assert (tmp_path / w.state.combined_file).exists()
+    assert w.track_file_label.full_path == "Track file loaded: earlier_tracks.csv"
+
+
+def test_cancelled_dialogs_load_nothing(tmp_path, monkeypatch):
+    """Closing a load button's dialog without choosing anything leaves the
+    open dataset as it was."""
+    images_folder, detections_file = write_dataset(tmp_path, "tframe,y,x\n0,10,10\n1,10,11\n", n_frames=2)
+    w = stand_in_widget(ViewerModel())
+    _loading.open_images_folder(w, str(images_folder))
+    _loading.open_detections(w, str(detections_file))
+    session, image_files = w.state.session, w.state.image_files
+    monkeypatch.setattr(_loading.QFileDialog, "getExistingDirectory", lambda *args: "")
+    monkeypatch.setattr(_loading.QFileDialog, "getOpenFileName", lambda *args: ("", ""))
+
+    _loading.choose_folder(w)
+    _loading.load_detections(w)
+    _loading.load_track_file(w)
+
+    assert w.state.session is session
+    assert w.state.image_files == image_files
+    assert w.state.combined_file == ""
+
+
+def test_csv_loaded_follows_the_loaded_detections(tmp_path):
+    """csv_loaded says whether detections are loaded: no before Load
+    Detections, yes after it, and no again once new images clear the
+    session (as a stored flag, it used to stay yes)."""
+    images_folder, detections_file = write_dataset(tmp_path, DETECTIONS_CSV, n_frames=3)
+    w = stand_in_widget(ViewerModel())
+    assert not w.state.csv_loaded
+
+    _loading.open_images_folder(w, str(images_folder))
+    assert not w.state.csv_loaded
+
+    _loading.open_detections(w, str(detections_file))
+    assert w.state.csv_loaded
+
+    _loading.open_images_folder(w, str(images_folder))  # new images
+    assert not w.state.csv_loaded
+
+
+def test_add_track_file_is_refused_after_new_images(tmp_path, monkeypatch, loaded_widget):
+    """After new images are loaded, the earlier detections are gone, so Add
+    Track File asks for images and detections first, opens no dialog and
+    writes no combined file."""
+    w = loaded_widget
+    images_folder = tmp_path / "images"
+    _loading.open_images_folder(w, str(images_folder))  # new images
+    messages = []
+    monkeypatch.setattr(_loading.QMessageBox, "information",
+                        lambda parent, title, text: messages.append(title))
+    dialogs = []
+    monkeypatch.setattr(_loading.QFileDialog, "getOpenFileName",
+                        lambda *args: dialogs.append(args) or ("", ""))
+
+    _loading.load_track_file(w)
+
+    assert messages == ["Load Images and Detections First."]
+    assert dialogs == []
+    assert w.state.combined_file == ""
