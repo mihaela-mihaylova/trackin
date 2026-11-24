@@ -9,7 +9,6 @@ class PluginState:
         self.images = []            # the loaded images (with a white border), in frame order
         self.image_files = []       # their file names, in the same order
         self.images_loaded = False  # a folder of images has been loaded
-        self.csv_loaded = False     # a detections file has been loaded
         # napari's camera has no zoom limits, so scrolling could zoom out until
         # the view is a blank speck. These are set from each image folder's
         # fit-to-view zoom when it is loaded.
@@ -24,6 +23,13 @@ class PluginState:
         # doesn't also put the new point on the track
         self.new_point_added = False
         self.clear_files()
+
+    @property
+    def csv_loaded(self):
+        """A detections file has been loaded: the session has its detections.
+        Worked out rather than stored, so it can't still say yes after new
+        images cleared the session."""
+        return bool(self.session.detections)
 
     def clear_files(self):
         """No output files: the state before a detections file is loaded.

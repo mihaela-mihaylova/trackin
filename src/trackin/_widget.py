@@ -163,12 +163,7 @@ class TrackinWidget(QWidget):
         self.state.n_detections_shown = None
         self.state.n_connections_shown = None
 
-        # Hide the Session Files panel directly rather than through
-        # update_file_paths_display(): that decides on state.csv_loaded, which
-        # is not reset here or in choose_folder(), so after images are
-        # reloaded it would show the previous dataset's file paths again. A
-        # caller that goes on to load a new detections file shows the panel
-        # again through its own update_file_paths_display() call.
+        # There are no detections now, so nothing to show in the Session Files panel
         self.session_files.hide_all()
 
         # The "Track file loaded: ..." label belongs to the previous dataset too

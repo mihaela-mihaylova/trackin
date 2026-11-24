@@ -153,7 +153,6 @@ def open_detections(w, csv_path):
     # create the empty session file, where accepted tracks are saved
     with open(os.path.join(w.state.output_folder, w.state.session_file), "w") as f:
         f.write("")
-    w.state.csv_loaded = True
     # Build the graph and propose the first track
     if w.state.session.graph is None:
         show_info("Building graph...")

@@ -1149,3 +1149,42 @@ def test_cancelled_dialogs_load_nothing(tmp_path, monkeypatch):
     assert w.state.session is session
     assert w.state.image_files == image_files
     assert w.state.combined_file == ""
+
+
+def test_csv_loaded_follows_the_loaded_detections(tmp_path):
+    """csv_loaded says whether detections are loaded: no before Load
+    Detections, yes after it, and no again once new images clear the
+    session (as a stored flag, it used to stay yes)."""
+    images_folder, detections_file = write_dataset(tmp_path, DETECTIONS_CSV, n_frames=3)
+    w = stand_in_widget(ViewerModel())
+    assert not w.state.csv_loaded
+
+    _loading.open_images_folder(w, str(images_folder))
+    assert not w.state.csv_loaded
+
+    _loading.open_detections(w, str(detections_file))
+    assert w.state.csv_loaded
+
+    _loading.open_images_folder(w, str(images_folder))  # new images
+    assert not w.state.csv_loaded
+
+
+def test_add_track_file_is_refused_after_new_images(tmp_path, monkeypatch, loaded_widget):
+    """After new images are loaded, the earlier detections are gone, so Add
+    Track File asks for images and detections first, opens no dialog and
+    writes no combined file."""
+    w = loaded_widget
+    images_folder = tmp_path / "images"
+    _loading.open_images_folder(w, str(images_folder))  # new images
+    messages = []
+    monkeypatch.setattr(_loading.QMessageBox, "information",
+                        lambda parent, title, text: messages.append(title))
+    dialogs = []
+    monkeypatch.setattr(_loading.QFileDialog, "getOpenFileName",
+                        lambda *args: dialogs.append(args) or ("", ""))
+
+    _loading.load_track_file(w)
+
+    assert messages == ["Load Images and Detections First."]
+    assert dialogs == []
+    assert w.state.combined_file == ""
