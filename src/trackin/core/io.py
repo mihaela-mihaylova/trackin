@@ -139,14 +139,17 @@ def check_detection_frames(df, n_images):
         "folder that also contains these frames."
     )
 
+def file_stem(path):
+    """The file's name without its folder and extension. Handles both / and
+    \\ path separators, and keeps everything before the last dot (so
+    "my.tracks.v2.csv" becomes "my.tracks.v2", not "my")."""
+    return PurePosixPath(path.replace('\\', '/')).stem
+
 def generate_upd_track_filename(csv_path, timestamp):
     """Build the filename for a track file that continues a previous
     session's track numbering, from the selected CSV's path and a
-    timestamp. Handles both / and \\ path separators, and keeps
-    everything before the last dot (so "my.tracks.v2.csv" becomes
-    "my.tracks.v2", not "my")."""
-    csv_filename = PurePosixPath(csv_path.replace('\\', '/')).stem
-    return f'with_new_tracks_added_{csv_filename}_{timestamp}.csv'
+    timestamp."""
+    return f'with_new_tracks_added_{file_stem(csv_path)}_{timestamp}.csv'
 
 # value written in the extra columns for a detection added by hand, which
 # didn't come from the detections file and so has no values of its own there

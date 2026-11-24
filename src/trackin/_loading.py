@@ -13,7 +13,7 @@ from skimage.io import imread
 
 from .core.io import (
     TrackFileError, check_and_add_displ_cols, check_detection_frames, check_image_numbering,
-    combine_tracks, format_list, generate_upd_track_filename, list_image_files,
+    combine_tracks, file_stem, format_list, generate_upd_track_filename, list_image_files,
     read_detections_csv, read_track_file, tracks_table,
 )
 from ._interaction import show_messages, use_proposed_track
@@ -142,7 +142,7 @@ def open_detections(w, csv_path):
     csv_data = check_and_add_displ_cols(new_csv_data)
     w.state.session = Session.from_dataframe(csv_data, n_frames=len(w.state.images))
 
-    csv_filename = csv_path.split('/')[-1].split('.')[0]
+    csv_filename = file_stem(csv_path)
     # generate the current timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # name for file where generated tracks are saved

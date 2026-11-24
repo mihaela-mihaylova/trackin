@@ -2,7 +2,16 @@ import pandas as pd
 import pytest
 
 from trackin.core.detection import Detection
-from trackin.core.io import TrackFileError, combine_tracks, read_track_file, tracks_table
+from trackin.core.io import TrackFileError, combine_tracks, file_stem, read_track_file, tracks_table
+
+
+def test_file_stem_handles_both_path_separators_and_dots():
+    """file_stem gives the file's name without its folder and extension,
+    for paths with / (macOS, Linux) and with \\ (Windows), keeping every
+    dot before the extension."""
+    assert file_stem("/data/run1/detections.csv") == "detections"
+    assert file_stem("C:\\data\\run1\\detections.csv") == "detections"
+    assert file_stem("C:\\data\\my.cells.v2.csv") == "my.cells.v2"
 
 
 def test_read_track_file_refuses_file_not_starting_with_standard_columns(tmp_path):

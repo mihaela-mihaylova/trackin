@@ -1105,6 +1105,23 @@ def test_open_detections_starts_a_tracking_session(tmp_path):
     assert (tmp_path / w.state.session_file).read_text() == ""
 
 
+def test_open_detections_names_the_output_files_after_the_whole_file_name(tmp_path):
+    """The output files are named after the detections file's whole name,
+    dots included: "my.cells.csv" gives "track_session_my.cells_...".
+    Before, the name was cut at its first dot, and on Windows the whole
+    path ended up in the name, so loading failed."""
+    images_folder, detections_file = write_dataset(tmp_path, "tframe,y,x\n0,10,10\n1,10,11\n", n_frames=2)
+    detections_file = detections_file.rename(tmp_path / "my.cells.csv")
+    w = stand_in_widget(ViewerModel())
+    _loading.open_images_folder(w, str(images_folder))
+
+    _loading.open_detections(w, str(detections_file))
+
+    assert w.state.session_file.startswith("track_session_my.cells_")
+    assert w.state.leftover_file.startswith("upd_my.cells_")
+    assert (tmp_path / w.state.session_file).read_text() == ""
+
+
 def test_open_track_file_writes_the_combined_file(tmp_path):
     """open_track_file adds a track file without a dialog: it writes the
     combined file next to the detections file, numbers new tracks after
